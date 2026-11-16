@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from redgrade.constants import SEVERITY_HIGH
+from redgrade.deep.errors import DeepError
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.models import Attack, Trial
 from redgrade.runner import new_canary
@@ -124,7 +125,13 @@ class PairLiteAttacker:
                 try:
                     raw = self._chat(messages)
                     prompt_tpl, doc_tpls = _parse_payload(raw)
+                except DeepError:
+                    raise
                 except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                    trials.append(Trial(succeeded=False, error=str(exc), canary=canary))
+                    payloads.append(("", []))
+                    continue
+                except Exception as exc:
                     trials.append(Trial(succeeded=False, error=str(exc), canary=canary))
                     payloads.append(("", []))
                     continue

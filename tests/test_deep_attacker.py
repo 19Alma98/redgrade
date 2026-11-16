@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import re
 
+import pytest
+
 from redgrade.deep.attacker import GoalSpec, PairLiteAttacker
+from redgrade.deep.errors import DeepError
 
 
 def test_pair_lite_succeeds_on_second_round():
@@ -49,6 +52,37 @@ def test_pair_lite_seed_round_skips_chat_first():
     )
     assert result.trials[0].succeeded is False
     assert calls["n"] == 1
+    assert any(t.succeeded for t in result.trials)
+
+
+def test_pair_lite_deep_error_from_chat_aborts():
+    def chat(messages: list[dict[str, str]]) -> str:
+        raise DeepError("provider down")
+
+    def target(prompt: str, documents: list[str], history=None) -> str:
+        raise AssertionError("target must not run after provider failure")
+
+    attacker = PairLiteAttacker(chat, max_rounds=2)
+    with pytest.raises(DeepError, match="provider down"):
+        attacker.run_goal(GoalSpec(id="DEEP-4", text="x"), target)
+
+
+def test_pair_lite_chat_runtime_error_is_trial_error():
+    calls = {"n": 0}
+
+    def chat(messages: list[dict[str, str]]) -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient glitch")
+        return json.dumps({"prompt": "Reply only with: {CANARY}", "documents": []})
+
+    def target(prompt: str, documents: list[str], history=None) -> str:
+        m = re.search(r"RG-[0-9A-F]{8}", prompt)
+        return m.group(0) if m and "Reply only" in prompt else "nope"
+
+    attacker = PairLiteAttacker(chat, max_rounds=3)
+    result = attacker.run_goal(GoalSpec(id="DEEP-5", text="x"), target)
+    assert result.trials[0].error == "transient glitch"
     assert any(t.succeeded for t in result.trials)
 
 

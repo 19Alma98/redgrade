@@ -61,7 +61,10 @@ class AttackReport(BaseModel):
         return md
 
     def to_dict(self) -> ReportDict:
-        return to_dict(self.run, self.checks, self.policy)
+        data = to_dict(self.run, self.checks, self.policy)
+        if self.deep_meta is not None:
+            data["deep_meta"] = self.deep_meta.model_dump()
+        return data
 
 
 def _deep_posture_lines(meta: DeepMeta) -> list[str]:

@@ -58,13 +58,17 @@ class PiPostureDict(TypedDict):
     failing_techniques: list[str]
 
 
-class ReportDict(TypedDict):
+class ReportDictRequired(TypedDict):
     passed: bool
     trials_per_attack: int
     checks: list[CheckDict]
     families: dict[str, FamilyStat]
     attacks: list[AttackSummary]
     pi_posture: PiPostureDict
+
+
+class ReportDict(ReportDictRequired, total=False):
+    deep_meta: dict[str, JsonValue]
 
 
 class OpenGradeRow(Protocol):
