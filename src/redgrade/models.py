@@ -36,8 +36,12 @@ class AttackTurn(BaseModel):
 class Attack(BaseModel):
     """One attack from a pack.
 
-    ``prompt`` and ``document`` are templates. ``{CANARY}`` is replaced by a random token per
-    trial; ``{b64:TEXT}`` and ``{rot13:TEXT}`` encode TEXT (after canary substitution).
+    Single-shot attacks use ``prompt`` (and optional ``document``). Multi-turn attacks use
+    ``turns`` (≥2 ``AttackTurn`` items); set ``prompt`` to empty. ``detect_on`` chooses whether
+    detectors run on the last turn output only or on any turn.
+
+    ``prompt``, ``document``, and each turn's templates use ``{CANARY}`` (per-trial token) and
+    ``{b64:TEXT}`` / ``{rot13:TEXT}`` encodings after canary substitution.
 
     ``delivery`` is ``direct`` (the prompt is sent as the user message) or ``document`` (the
     prompt is a harmless user question and ``document`` is a poisoned document the app reads,

@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from redgrade.models import Attack, AttackResult, AttackTurn, RunResult, Trial
 from redgrade.policy import Policy, evaluate_policy, passed
-from redgrade.render import format_history, render, render_turn
+from redgrade.render import format_history, render, render_attack, render_turn
 from redgrade.types import HistoryMessage
 from redgrade.runner import RunConfig, run_attacks
 from redgrade.targets import HttpTarget, TargetError, wrap_function
@@ -64,6 +64,38 @@ def test_attack_requires_at_least_two_turns():
             detector="canary",
             turns=(AttackTurn(prompt="only"),),
         )
+
+
+def test_attack_requires_prompt_or_turns():
+    with pytest.raises(ValidationError, match="attack requires prompt or turns"):
+        Attack(
+            id="T-1",
+            family="multi_turn",
+            title="t",
+            owasp="LLM01",
+            severity="high",
+            detector="canary",
+            prompt="",
+            turns=(),
+        )
+
+
+def test_render_attack_rejects_multi_turn():
+    mt = Attack(
+        id="T-MT",
+        family="multi_turn",
+        title="t",
+        owasp="LLM01",
+        severity="high",
+        detector="canary",
+        prompt="",
+        turns=(
+            AttackTurn(prompt="turn1 {CANARY}"),
+            AttackTurn(prompt="turn2 {CANARY}"),
+        ),
+    )
+    with pytest.raises(ValueError, match="multi-turn"):
+        render_attack(mt, "RG-TEST")
 
 
 def test_format_history_user_assistant_lines():
