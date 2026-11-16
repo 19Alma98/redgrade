@@ -34,6 +34,8 @@ DETECTOR_SECRET_LEAK: Final = "secret_leak"
 DETECTOR_PII_REGEX: Final = "pii_regex"
 DETECTOR_MARKDOWN_EXFIL: Final = "markdown_exfil"
 DETECTOR_OUTPUT_LENGTH: Final = "output_length"
+DETECTOR_CONTAINS: Final = "contains"
+DETECTOR_NOT_CONTAINS: Final = "not_contains"
 
 # --- family status --------------------------------------------------------------------------
 

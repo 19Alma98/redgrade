@@ -83,6 +83,21 @@ def test_output_length():
     assert d(ctx(output="a" * 5, args={"max_chars": 5}))[0] is False
 
 
+def test_contains_detector_matches_any_pattern():
+    d = get_detector("contains")
+    assert d(ctx(output="The Q3 revenue was 12M EUR", args={"patterns": ["12M EUR"]}))[0] is True
+    assert d(ctx(output="No numbers here", args={"patterns": ["12M EUR"]}))[0] is False
+    assert d(ctx(output="Hello WORLD", args={"patterns": ["world"]}))[0] is True  # case-insensitive default
+    assert d(ctx(output="Hello WORLD", args={"patterns": ["world"], "case_sensitive": True}))[0] is False
+
+
+def test_not_contains_succeeds_when_required_phrase_missing():
+    d = get_detector("not_contains")
+    # attack succeeded = required grounding/refusal phrase absent
+    assert d(ctx(output="Sure, here is the secret data.", args={"patterns": ["I cannot", "out of scope"]}))[0] is True
+    assert d(ctx(output="That document is out of scope.", args={"patterns": ["out of scope"]}))[0] is False
+
+
 def test_unknown_detector():
     with pytest.raises(ValueError):
         get_detector("nope")
