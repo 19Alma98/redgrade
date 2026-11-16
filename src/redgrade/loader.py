@@ -35,30 +35,73 @@ class PackLoader:
             if not isinstance(raw, dict):
                 raise PackError(f"{origin}: each attack must be a mapping")
             try:
-                delivery = DELIVERY_DOCUMENT if raw.get("document") else DELIVERY_DIRECT
                 args_raw = raw.get("detector_args", {})
                 if args_raw is None:
                     args_raw = {}
                 if not isinstance(args_raw, dict):
                     raise PackError(f"{origin}: detector_args must be a mapping")
                 detector_args: DetectorArgs = dict(args_raw)
-                document = raw.get("document")
-                attack = Attack.model_validate(
-                    {
-                        "id": str(raw["id"]),
-                        "family": str(raw.get("family", family)),
-                        "title": str(raw["title"]),
-                        "owasp": str(raw.get("owasp", default_owasp)),
-                        "severity": str(raw.get("severity", DEFAULT_SEVERITY)),
-                        "prompt": str(raw["prompt"]),
-                        "detector": str(raw["detector"]),
-                        "delivery": delivery,
-                        "document": None if document is None else str(document),
-                        "detector_args": detector_args,
-                        "requires_secrets": bool(raw.get("requires_secrets", False)),
-                        "description": str(raw.get("description", "")),
-                    }
-                )
+                raw_turns = raw.get("turns")
+                if raw_turns is not None:
+                    if raw.get("prompt") is not None:
+                        raise PackError(f"{origin}: {raw.get('id')}: cannot set both prompt and turns")
+                    if not isinstance(raw_turns, list) or len(raw_turns) < 2:
+                        raise PackError(f"{origin}: {raw.get('id')}: turns must be a list of at least 2 items")
+                    turns: list[dict] = []
+                    any_docs = False
+                    for i, t in enumerate(raw_turns):
+                        if not isinstance(t, dict) or "prompt" not in t:
+                            raise PackError(f"{origin}: {raw.get('id')}: turn {i} needs prompt")
+                        docs: list[str] = []
+                        if t.get("document") is not None:
+                            docs.append(str(t["document"]))
+                        extra = t.get("documents") or []
+                        if not isinstance(extra, list):
+                            raise PackError(f"{origin}: {raw.get('id')}: turn documents must be a list")
+                        docs.extend(str(x) for x in extra)
+                        any_docs = any_docs or bool(docs)
+                        turns.append({"prompt": str(t["prompt"]), "documents": docs})
+                    detect_on = str(raw.get("detect_on", "last"))
+                    if detect_on not in ("last", "any"):
+                        raise PackError(f"{origin}: {raw.get('id')}: detect_on must be 'last' or 'any'")
+                    delivery = DELIVERY_DOCUMENT if any_docs else DELIVERY_DIRECT
+                    attack = Attack.model_validate(
+                        {
+                            "id": str(raw["id"]),
+                            "family": str(raw.get("family", family)),
+                            "title": str(raw["title"]),
+                            "owasp": str(raw.get("owasp", default_owasp)),
+                            "severity": str(raw.get("severity", DEFAULT_SEVERITY)),
+                            "prompt": "",
+                            "turns": turns,
+                            "detect_on": detect_on,
+                            "detector": str(raw["detector"]),
+                            "delivery": delivery,
+                            "document": None,
+                            "detector_args": detector_args,
+                            "requires_secrets": bool(raw.get("requires_secrets", False)),
+                            "description": str(raw.get("description", "")),
+                        }
+                    )
+                else:
+                    delivery = DELIVERY_DOCUMENT if raw.get("document") else DELIVERY_DIRECT
+                    document = raw.get("document")
+                    attack = Attack.model_validate(
+                        {
+                            "id": str(raw["id"]),
+                            "family": str(raw.get("family", family)),
+                            "title": str(raw["title"]),
+                            "owasp": str(raw.get("owasp", default_owasp)),
+                            "severity": str(raw.get("severity", DEFAULT_SEVERITY)),
+                            "prompt": str(raw["prompt"]),
+                            "detector": str(raw["detector"]),
+                            "delivery": delivery,
+                            "document": None if document is None else str(document),
+                            "detector_args": detector_args,
+                            "requires_secrets": bool(raw.get("requires_secrets", False)),
+                            "description": str(raw.get("description", "")),
+                        }
+                    )
             except KeyError as exc:
                 raise PackError(f"{origin}: attack is missing field {exc}") from exc
             except ValidationError as exc:

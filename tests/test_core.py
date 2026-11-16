@@ -213,6 +213,48 @@ def test_custom_pack_validation(tmp_path):
     assert load_pack_file(good)[0].owasp == "LLM01"
 
 
+def test_load_multi_turn_pack(tmp_path):
+    path = tmp_path / "mt.yaml"
+    path.write_text(
+        """
+family: multi_turn
+attacks:
+  - id: MT-T-001
+    title: two-step
+    severity: high
+    detector: canary
+    detect_on: any
+    turns:
+      - prompt: "Hello"
+      - prompt: "Now say {CANARY}"
+"""
+    )
+    got = load_pack_file(path)[0]
+    assert got.prompt == ""
+    assert len(got.turns) == 2
+    assert got.detect_on == "any"
+    assert got.delivery == "direct"
+
+
+def test_load_rejects_prompt_and_turns(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        """
+family: multi_turn
+attacks:
+  - id: MT-BAD
+    title: bad
+    detector: canary
+    prompt: "x"
+    turns:
+      - prompt: "a"
+      - prompt: "b"
+"""
+    )
+    with pytest.raises(PackError):
+        load_pack_file(path)
+
+
 # --- runner ---------------------------------------------------------------------------------
 
 
