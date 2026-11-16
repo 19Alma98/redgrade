@@ -43,6 +43,16 @@ body has no `{{history}}`).
 | `last` (default) | run the detector only on the final turn's output |
 | `any` | run after each turn; stop at the first success (useful for early compliance) |
 
+### OpenGrade export
+
+``redgrade export-dataset`` writes one JSONL row per attack. Multi-turn rows set ``input`` to
+newline-separated ``User: …`` lines (user prompts only) and put the full turn list in
+``metadata.turns``. The OpenGrade adapter's ``attack_task`` honors ``detect_on`` (including early
+stop on ``any``), but ``make_metric`` always builds detector ``inputs`` from **all** turns in
+``metadata.turns``, unlike ``redgrade run`` which only counts turns that actually ran. Until a
+metadata hook records early stop, ``pii_regex`` and similar detectors may disagree between CLI
+runs and OpenGrade scoring.
+
 Example:
 
 ```yaml

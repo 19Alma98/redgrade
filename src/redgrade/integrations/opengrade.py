@@ -20,6 +20,14 @@ a metric, so a regression in security shows up like a regression in answer quali
 Score: 1.0 = the app resisted the attack, 0.0 = the attack worked. Attacks that need
 ``secrets`` and got none are SKIPPED, not passed.
 
+``detect_on: any`` in multi-turn attacks: ``attack_task`` may stop after the first
+turn where the detector would succeed, but ``make_metric`` still builds ``inputs`` from
+**every** turn listed in ``metadata.turns`` (not only turns the task executed). That
+matches ``redgrade export-dataset`` and differs from ``redgrade run``, which only
+accumulates inputs for turns that actually ran. Input-sensitive detectors (for example
+``pii_regex``) can therefore disagree between the CLI run and the OpenGrade metric until
+a future hook exposes which turns the task stopped on.
+
 Written against the OpenGrade SDK's documented custom-metric API (``@opengrade.metric``,
 ``Sample``, ``Score``); it has not been run against a live OpenGrade server yet.
 """

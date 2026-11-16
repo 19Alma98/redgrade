@@ -6,8 +6,10 @@ user or from a document, and it will repeat its system prompt if asked. That mak
 offline, for free, with reproducible numbers. Swap it for a real model call to attack a real app.
 
 ``hardened`` adds the usual layers around the same model: input filtering, treating documents as
-data, and output filtering. It is deliberately imperfect: it does not decode Base64/ROT13 or
-reassemble split payloads, so Redgrade still finds those gaps.
+data, and output filtering. After those checks it feeds the same transcript layout as
+``vulnerable`` (system prompt, prior user/assistant turns, documents, current prompt) into the
+stand-in model. It is deliberately imperfect: it does not decode Base64/ROT13 or reassemble split
+payloads, so Redgrade still finds those gaps.
 """
 
 import base64
@@ -130,6 +132,7 @@ def hardened(prompt: str, documents: list[str], history: list | None = None) -> 
         return (
             "Mi dispiace, quel contenuto è fuori ambito e non posso usare documenti HR per questa richiesta."
         )
+    hist_txt = "\n".join(f"{m['role']}: {m['content']}" for m in history)
     safe_docs = [_clean_document(d) for d in documents]
-    context = "\n\n".join([SYSTEM_PROMPT, *safe_docs, prompt])
+    context = "\n\n".join(x for x in [SYSTEM_PROMPT, hist_txt, *safe_docs, prompt] if x)
     return _clean_output(naive_model(context))
