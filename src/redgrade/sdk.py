@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from redgrade.deep.meta import DeepMeta
 from redgrade.loader import load_attacks
 from redgrade.models import AttackResult, RunResult
 from redgrade.policy import Check, Policy, evaluate_policy, passed
@@ -30,6 +31,7 @@ class AttackReport(BaseModel):
     pi_score: int | None = None
     highest_resisted_level: int | None = None
     asr_overall: float | None = None
+    deep_meta: DeepMeta | None = None
 
     def summary(self) -> str:
         lines = [
@@ -48,13 +50,35 @@ class AttackReport(BaseModel):
             lines.append("Successful attacks:")
             for r in bad[:10]:
                 lines.append(f"  - {r.attack.id}: {r.successes}/{len(r.valid_trials)} trials")
+        if self.deep_meta is not None:
+            lines.extend(_deep_posture_lines(self.deep_meta))
         return "\n".join(lines)
 
     def to_markdown(self) -> str:
-        return to_markdown(self.run, self.checks, self.policy)
+        md = to_markdown(self.run, self.checks, self.policy)
+        if self.deep_meta is not None:
+            md = md + "\n\n" + "\n".join(_deep_posture_lines(self.deep_meta))
+        return md
 
     def to_dict(self) -> ReportDict:
         return to_dict(self.run, self.checks, self.policy)
+
+
+def _deep_posture_lines(meta: DeepMeta) -> list[str]:
+    lines = [
+        "Deep posture:",
+        f"  Attacker model: {meta.attacker_model}",
+    ]
+    if meta.attacker_api_base is not None:
+        lines.append(f"  API base: {meta.attacker_api_base}")
+    lines.append(f"  Max rounds: {meta.max_rounds}")
+    lines.append(f"  Goals succeeded: {meta.goals_succeeded}/{meta.goals_total}")
+    lines.append(f"  Target kind: {meta.target_kind}")
+    if meta.rounds_used_by_goal:
+        lines.append("  Rounds used by goal:")
+        for goal_id, rounds in sorted(meta.rounds_used_by_goal.items()):
+            lines.append(f"    - {goal_id}: {rounds}")
+    return lines
 
 
 def _overall_asr(run: RunResult) -> float | None:
@@ -65,7 +89,13 @@ def _overall_asr(run: RunResult) -> float | None:
     return wins / valid
 
 
-def _build_report(run: RunResult, checks: list[Check], policy: Policy) -> AttackReport:
+def _build_report(
+    run: RunResult,
+    checks: list[Check],
+    policy: Policy,
+    *,
+    deep_meta: DeepMeta | None = None,
+) -> AttackReport:
     posture = PiScorer().score(run, max_asr_by_level=policy.max_asr_by_level or None)
     return AttackReport(
         passed=passed(checks),
@@ -75,6 +105,7 @@ def _build_report(run: RunResult, checks: list[Check], policy: Policy) -> Attack
         pi_score=posture.score,
         highest_resisted_level=posture.highest_resisted_level,
         asr_overall=_overall_asr(run),
+        deep_meta=deep_meta,
     )
 
 
