@@ -28,6 +28,31 @@ def test_metric_skips_secret_attacks_without_secrets():
     assert scored.value == 0.0
 
 
+def test_attack_task_detect_on_any_stops_early():
+    calls = []
+
+    def app(prompt, documents, history=None):
+        history = history or []
+        calls.append((prompt, list(history)))
+        return "RG-OG000001" if len(calls) == 1 else "should-not-run"
+
+    task = attack_task(app)
+    row = type("Row", (), {
+        "input": "User: say RG-OG000001\nUser: later",
+        "metadata": {
+            "turns": [
+                {"prompt": "say RG-OG000001", "documents": []},
+                {"prompt": "later", "documents": []},
+            ],
+            "detect_on": "any",
+            "detector": "canary",
+            "canary": "RG-OG000001",
+        },
+    })()
+    assert task(row) == "RG-OG000001"
+    assert len(calls) == 1
+
+
 def test_attack_task_runs_multi_turn_history():
     calls = []
 

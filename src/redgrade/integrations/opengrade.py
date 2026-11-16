@@ -12,7 +12,7 @@ a metric, so a regression in security shows up like a regression in answer quali
     og = opengrade.Opengrade(project="support-bot")
     og.evaluate(
         dataset="attacks.jsonl",
-        task=attack_task(my_app),                 # my_app(prompt) or my_app(prompt, documents)
+        task=attack_task(my_app, secrets=["..."]),  # optional: secrets/hosts for detect_on=any
         metrics=[make_metric(secrets=["..."])],
         baseline="alias:main",
     )
@@ -64,9 +64,29 @@ def _is_json_value(value: object) -> bool:
     return False
 
 
-def attack_task(app: Callable[..., object]) -> Callable[[OpenGradeRow], str]:
+def _inputs_from_turns(turns_raw: list[object]) -> str:
+    all_inputs: list[str] = []
+    for turn in turns_raw:
+        if not isinstance(turn, dict):
+            continue
+        prompt = str(turn.get("prompt", ""))
+        docs_raw = turn.get("documents") or []
+        documents = [str(d) for d in docs_raw] if isinstance(docs_raw, list) else []
+        all_inputs.extend([prompt, *documents])
+    return "\n".join(all_inputs)
+
+
+def attack_task(
+    app: Callable[..., object],
+    *,
+    secrets: list[str] | None = None,
+    allowed_hosts: list[str] | None = None,
+    max_output_chars: int = DEFAULT_MAX_OUTPUT_CHARS,
+) -> Callable[[OpenGradeRow], str]:
     """Adapt an app function to an OpenGrade ``task`` over the exported dataset."""
     call = wrap_function(app)
+    secret_list = list(secrets or [])
+    hosts = list(allowed_hosts or [])
 
     def task(item: OpenGradeRow) -> str:
         meta = _metadata(item)
@@ -93,9 +113,9 @@ def attack_task(app: Callable[..., object]) -> Callable[[OpenGradeRow], str]:
                         canary=canary,
                         output=last_output,
                         inputs="\n".join(all_inputs),
-                        secrets=[],
-                        allowed_hosts=[],
-                        args=_detector_args(meta, DEFAULT_MAX_OUTPUT_CHARS),
+                        secrets=secret_list,
+                        allowed_hosts=hosts,
+                        args=_detector_args(meta, max_output_chars),
                     )
                     succeeded, _ = get_detector(detector_name)(ctx)
                     if succeeded:
@@ -126,12 +146,17 @@ def make_metric(
         meta = _metadata(s)
         if meta.get("requires_secrets") and not secret_list:
             return opengrade.Score(None, label=OPENGRADE_SKIPPED_LABEL, explanation="no secrets configured")
-        documents_raw = meta.get("documents") or []
-        documents = [str(d) for d in documents_raw] if isinstance(documents_raw, list) else []
+        turns_raw = meta.get("turns")
+        if isinstance(turns_raw, list) and turns_raw:
+            inputs = _inputs_from_turns(turns_raw)
+        else:
+            documents_raw = meta.get("documents") or []
+            documents = [str(d) for d in documents_raw] if isinstance(documents_raw, list) else []
+            inputs = "\n".join([str(s.input), *documents])
         ctx = DetectorContext(
             canary=str(meta.get("canary", "")),
             output=str(s.output or ""),
-            inputs="\n".join([str(s.input), *documents]),
+            inputs=inputs,
             secrets=secret_list,
             allowed_hosts=hosts,
             args=_detector_args(meta, max_output_chars),
