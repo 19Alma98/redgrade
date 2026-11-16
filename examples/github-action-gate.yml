@@ -1,0 +1,29 @@
+# Copy to .github/workflows/redgrade.yml in YOUR app's repository.
+# The pull request goes red when the attack success rate exceeds the policy in redgrade.yaml.
+name: Red-team gate
+
+on:
+  pull_request:
+
+jobs:
+  redgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv pip install redgrade
+      - name: Attack the app
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}   # whatever your app needs to run
+        run: uv run redgrade run -c redgrade.yaml --report redgrade-report.md --json redgrade.json
+      - name: Show the report in the job summary
+        if: always()
+        run: cat redgrade-report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: redgrade-report
+          path: |
+            redgrade-report.md
+            redgrade.json

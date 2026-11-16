@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --python ${{ matrix.python-version }} --group dev --extra opengrade
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest -q
+
+  demo:
+    # The vulnerable demo must fail the gate and the hardened one must pass it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: |
+          if uv run redgrade run -c examples/redgrade.vulnerable.yaml --trials 1 > /dev/null; then
+            echo "vulnerable demo unexpectedly passed"; exit 1
+          fi
+      - run: uv run redgrade run -c examples/redgrade.hardened.yaml --trials 1 --report report.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redgrade-report
+          path: report.md
