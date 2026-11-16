@@ -5,8 +5,9 @@ exfiltration attempts, measures how often they work, and fails the pull request 
 regresses. Self-hosted, one small package, no SaaS.
 
 > Status: **0.2 (alpha)**. 63 attacks across 8 packs (including L4 mutations on selected PI seeds),
-> PI maturity score and level posture in the report, document simulation. Adaptive attackers and
-> agent, tool and MCP attacks are on the [roadmap](ROADMAP.md) (0.3). Built to pair with
+> PI maturity score and level posture in the report, document simulation. Adaptive attackers are
+> available via [`redgrade deep`](docs/deep-mode.md); agent, tool and MCP attacks are on the
+> [roadmap](ROADMAP.md) (0.3). Built to pair with
 > [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
 
 ## The problem

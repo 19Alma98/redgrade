@@ -4,8 +4,8 @@ Deep mode runs a **PAIR-lite** loop: an LLM attacker proposes prompts, your app 
 trialed, and deterministic detectors score the outcome. Use it to experiment beyond the static attack
 packs—not as the default pull-request gate.
 
-**CI and library tests should keep using** [`redgrade run`](README.md#in-ci) and
-[`attack()`](README.md#use-as-a-library). Those paths use static packs and deterministic L4
+**CI and library tests should keep using** [`redgrade run`](../README.md#in-ci) and
+[`attack()`](../README.md#use-as-a-library). Those paths use static packs and deterministic L4
 mutations only; they never call LiteLLM or your provider.
 
 ## Install
