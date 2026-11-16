@@ -8,8 +8,9 @@ offline, for free, with reproducible numbers. Swap it for a real model call to a
 ``hardened`` adds the usual layers around the same model: input filtering, treating documents as
 data, and output filtering. After those checks it feeds the same transcript layout as
 ``vulnerable`` (system prompt, prior user/assistant turns, documents, current prompt) into the
-stand-in model. It is deliberately imperfect: it does not decode Base64/ROT13 or reassemble split
-payloads, so Redgrade still finds those gaps.
+stand-in model. Plain override phrases are blocked in user input, so L4 derived encoding mutations
+usually fail before ``naive_model`` decodes them. The deliberate residual gap is multilingual
+authority wording (e.g. PI-D-013), which the demo input filter does not match.
 """
 
 import base64

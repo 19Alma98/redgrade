@@ -29,7 +29,8 @@ def test_hardened_demo_passes_and_reports_residual_gaps(capsys, tmp_path):
     data = json.loads(out_json.read_text())
     assert data["passed"] is True
     failed = {a["id"] for a in data["attacks"] if a["asr"]}
-    assert failed == {"PI-D-008", "PI-D-009", "PI-D-010"}  # encoding attacks the demo ignores
+    # Residual L2 gap: DE/PT authority strings not in the demo input filter (L4 derived are blocked).
+    assert failed == {"PI-D-013"}
     assert "PASSED" in capsys.readouterr().out
 
 
@@ -59,13 +60,14 @@ def test_list_shows_planned_families(capsys):
     assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "PI-D-001" in out and "planned v0.3" in out
+    assert "LEVEL" in out and "TECHNIQUE" in out
 
 
 def test_export_dataset_for_opengrade(tmp_path):
     out = tmp_path / "attacks.jsonl"
     assert main(["export-dataset", str(out), "--family", "prompt_injection_indirect"]) == 0
     rows = [json.loads(line) for line in out.read_text().splitlines()]
-    assert len(rows) == 5
+    assert len(rows) == 14  # 5 indirect seeds + 9 L4 mutations on PI-I-001
     row = rows[0]
     assert row["metadata"]["canary"] in row["metadata"]["documents"][0]
     assert {"attack_id", "family", "owasp", "detector"} <= set(row["metadata"])

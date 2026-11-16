@@ -17,6 +17,7 @@ from redgrade.constants import (
 from redgrade.detectors import DETECTORS
 from redgrade.families import FAMILY_BY_ID
 from redgrade.models import Attack
+from redgrade.mutations import MutationExpander
 from redgrade.types import DetectorArgs
 
 
@@ -26,6 +27,35 @@ class PackError(Exception):
 
 class PackLoader:
     """Parse and validate attack pack YAML into ``Attack`` models."""
+
+    def _pack_attack_fields(self, raw: dict[str, object], origin: str, attack_id: str) -> dict[str, object]:
+        extra: dict[str, object] = {}
+        if "level" in raw:
+            extra["level"] = raw["level"]
+        if "technique" in raw:
+            extra["technique"] = str(raw["technique"])
+        if "mutate_scope" in raw:
+            extra["mutate_scope"] = str(raw["mutate_scope"])
+        if "mutations" in raw:
+            mut = raw["mutations"]
+            if not isinstance(mut, list):
+                raise PackError(f"{origin}: {attack_id}: mutations must be a list")
+            extra["mutations"] = tuple(str(x) for x in mut)
+        return extra
+
+    def _finalize(self, attacks: list[Attack]) -> list[Attack]:
+        try:
+            attacks = MutationExpander().expand(attacks)
+        except ValueError as exc:
+            if str(exc).startswith("duplicate attack id"):
+                raise PackError(str(exc)) from exc
+            raise
+        seen: set[str] = set()
+        for attack in attacks:
+            if attack.id in seen:
+                raise PackError(f"duplicate attack id {attack.id}")
+            seen.add(attack.id)
+        return attacks
 
     def parse(self, data: object, origin: str) -> list[Attack]:
         if not isinstance(data, dict) or "attacks" not in data:
@@ -88,6 +118,7 @@ class PackLoader:
                             "detector_args": detector_args,
                             "requires_secrets": bool(raw.get("requires_secrets", False)),
                             "description": str(raw.get("description", "")),
+                            **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
                     )
                 else:
@@ -116,6 +147,7 @@ class PackLoader:
                             "detector_args": detector_args,
                             "requires_secrets": bool(raw.get("requires_secrets", False)),
                             "description": str(raw.get("description", "")),
+                            **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
                     )
             except KeyError as exc:
@@ -131,12 +163,15 @@ class PackLoader:
             attacks.append(attack)
         return attacks
 
-    def load_builtin(self) -> list[Attack]:
+    def _collect_builtin(self) -> list[Attack]:
         attacks: list[Attack] = []
         for entry in sorted(resources.files("redgrade.packs").iterdir(), key=lambda p: p.name):
             if entry.name.endswith(".yaml"):
                 attacks += self.parse(yaml.safe_load(entry.read_text(encoding="utf-8")), entry.name)
         return attacks
+
+    def load_builtin(self) -> list[Attack]:
+        return self._finalize(self._collect_builtin())
 
     def load_file(self, path: str | Path) -> list[Attack]:
         path = Path(path)
@@ -144,7 +179,7 @@ class PackLoader:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as exc:
             raise PackError(f"cannot read pack {path}: {exc}") from exc
-        return self.parse(data, str(path))
+        return self._finalize(self.parse(data, str(path)))
 
     def load(
         self,
@@ -153,14 +188,14 @@ class PackLoader:
         families: list[str] | None = None,
         ids: list[str] | None = None,
     ) -> list[Attack]:
-        attacks = self.load_builtin()
+        attacks = self._collect_builtin()
         for pack in extra_packs or []:
-            attacks += self.load_file(pack)
-        seen: set[str] = set()
-        for attack in attacks:
-            if attack.id in seen:
-                raise PackError(f"duplicate attack id {attack.id}")
-            seen.add(attack.id)
+            path = Path(pack)
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                raise PackError(f"cannot read pack {path}: {exc}") from exc
+            attacks += self.parse(data, str(path))
         if families:
             unknown = set(families) - set(FAMILY_BY_ID)
             if unknown:
@@ -168,7 +203,7 @@ class PackLoader:
             attacks = [a for a in attacks if a.family in families]
         if ids:
             attacks = [a for a in attacks if a.id in ids]
-        return attacks
+        return self._finalize(attacks)
 
 
 def load_builtin_attacks() -> list[Attack]:

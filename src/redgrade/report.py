@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from redgrade.constants import (
     FAMILY_STATUS_AVAILABLE,
+    PI_LEVEL_WEIGHTS,
     REPORT_SNIPPET_CHARS,
     SEVERITY_CRITICAL,
     SEVERITY_HIGH,
@@ -13,8 +14,9 @@ from redgrade.constants import (
 )
 from redgrade.families import FAMILIES
 from redgrade.models import AttackResult, RunResult
-from redgrade.policy import Check, passed
-from redgrade.types import AttackSummary, CheckDict, FamilyStat, ReportDict
+from redgrade.policy import Check, Policy, passed
+from redgrade.scoring import PiPosture, PiScorer
+from redgrade.types import AttackSummary, CheckDict, FamilyStat, PiPostureDict, ReportDict
 
 _SEVERITY_ORDER = {
     SEVERITY_CRITICAL: 0,
@@ -44,7 +46,44 @@ class ReportBuilder:
             }
         return stats
 
-    def to_dict(self, run: RunResult, checks: list[Check]) -> ReportDict:
+    def _score_posture(self, run: RunResult, policy: Policy | None) -> PiPosture:
+        if policy is None:
+            return PiScorer().score(run, max_asr_by_level={})
+        return PiScorer().score(run, max_asr_by_level=policy.max_asr_by_level or None)
+
+    def _posture_dict(self, posture: PiPosture) -> PiPostureDict:
+        return {
+            "score": posture.score,
+            "highest_resisted_level": posture.highest_resisted_level,
+            "asr_by_level": {str(level): rate for level, rate in posture.asr_by_level.items()},
+            "unleveled": posture.unleveled,
+            "failing_techniques": posture.failing_techniques,
+        }
+
+    def _pi_posture_markdown(self, posture: PiPosture) -> list[str]:
+        if posture.score is None:
+            score_line = "PI Maturity Score: n/a (no leveled PI attacks ran)"
+        else:
+            score_line = f"PI Maturity Score: {posture.score}/100"
+        resisted = (
+            f"L{posture.highest_resisted_level}" if posture.highest_resisted_level is not None else "n/a"
+        )
+        lines = [
+            "",
+            "## Prompt injection posture",
+            "",
+            f"- {score_line}",
+            f"- Highest resisted level: {resisted}",
+            f"- Unleveled attacks (excluded from score): {posture.unleveled}",
+            "",
+            "| level | ASR |",
+            "|---|---|",
+        ]
+        for level in PI_LEVEL_WEIGHTS:
+            lines.append(f"| L{level} | {_pct(posture.asr_by_level.get(level))} |")
+        return lines
+
+    def to_dict(self, run: RunResult, checks: list[Check], policy: Policy | None = None) -> ReportDict:
         check_rows: list[CheckDict] = [
             {"name": c.name, "value": c.value, "limit": c.limit, "passed": c.passed} for c in checks
         ]
@@ -62,18 +101,20 @@ class ReportBuilder:
             }
             for r in run.results
         ]
+        posture = self._score_posture(run, policy)
         return {
             "passed": passed(checks),
             "trials_per_attack": run.trials_per_attack,
             "checks": check_rows,
             "families": self.family_stats(run),
             "attacks": attack_rows,
+            "pi_posture": self._posture_dict(posture),
         }
 
-    def to_json(self, run: RunResult, checks: list[Check]) -> str:
-        return json.dumps(self.to_dict(run, checks), indent=2, ensure_ascii=False)
+    def to_json(self, run: RunResult, checks: list[Check], policy: Policy | None = None) -> str:
+        return json.dumps(self.to_dict(run, checks, policy), indent=2, ensure_ascii=False)
 
-    def to_markdown(self, run: RunResult, checks: list[Check]) -> str:
+    def to_markdown(self, run: RunResult, checks: list[Check], policy: Policy | None = None) -> str:
         ok = passed(checks)
         lines = [f"# Redgrade report: {'PASSED' if ok else 'FAILED'}", ""]
         lines.append(
@@ -87,6 +128,9 @@ class ReportBuilder:
                 lines.append(f"| {c.name} | {int(c.value)} attack(s) ran | >= 1 | {mark} |")
             else:
                 lines.append(f"| {c.name} | {_pct(c.value)} | <= {_pct(c.limit)} | {mark} |")
+
+        posture = self._score_posture(run, policy)
+        lines += self._pi_posture_markdown(posture)
 
         stats = self.family_stats(run)
         lines += [
@@ -156,13 +200,13 @@ def family_stats(run: RunResult) -> dict[str, FamilyStat]:
     return ReportBuilder().family_stats(run)
 
 
-def to_dict(run: RunResult, checks: list[Check]) -> ReportDict:
-    return ReportBuilder().to_dict(run, checks)
+def to_dict(run: RunResult, checks: list[Check], policy: Policy | None = None) -> ReportDict:
+    return ReportBuilder().to_dict(run, checks, policy)
 
 
-def to_json(run: RunResult, checks: list[Check]) -> str:
-    return ReportBuilder().to_json(run, checks)
+def to_json(run: RunResult, checks: list[Check], policy: Policy | None = None) -> str:
+    return ReportBuilder().to_json(run, checks, policy)
 
 
-def to_markdown(run: RunResult, checks: list[Check]) -> str:
-    return ReportBuilder().to_markdown(run, checks)
+def to_markdown(run: RunResult, checks: list[Check], policy: Policy | None = None) -> str:
+    return ReportBuilder().to_markdown(run, checks, policy)

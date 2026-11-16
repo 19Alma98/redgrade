@@ -18,6 +18,12 @@ class HistoryMessage(TypedDict):
     content: str
 
 
+class LevelStat(TypedDict):
+    valid: int
+    wins: int
+    asr: float | None
+
+
 class FamilyStat(TypedDict):
     attacks: int
     valid: int
@@ -44,12 +50,21 @@ class CheckDict(TypedDict):
     passed: bool
 
 
+class PiPostureDict(TypedDict):
+    score: int | None
+    highest_resisted_level: int | None
+    asr_by_level: dict[str, float | None]
+    unleveled: int
+    failing_techniques: list[str]
+
+
 class ReportDict(TypedDict):
     passed: bool
     trials_per_attack: int
     checks: list[CheckDict]
     families: dict[str, FamilyStat]
     attacks: list[AttackSummary]
+    pi_posture: PiPostureDict
 
 
 class OpenGradeRow(Protocol):

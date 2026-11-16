@@ -4,9 +4,10 @@
 exfiltration attempts, measures how often they work, and fails the pull request when security
 regresses. Self-hosted, one small package, no SaaS.
 
-> Status: **0.2 (alpha)**. 35 attacks across 7 families, including multi-turn escalation and RAG
-> document simulation. Agent, tool and MCP attacks are on the [roadmap](ROADMAP.md) (0.3). Built to
-> pair with [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
+> Status: **0.2 (alpha)**. 63 attacks across 8 packs (including L4 mutations on selected PI seeds),
+> PI maturity score and level posture in the report, document simulation. Adaptive attackers and
+> agent, tool and MCP attacks are on the [roadmap](ROADMAP.md) (0.3). Built to pair with
+> [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
 
 ## The problem
 
@@ -23,21 +24,24 @@ deterministic simulation (no API key, no network), so the numbers are reproducib
 
 ```bash
 uv sync
-uv run redgrade run -c examples/redgrade.vulnerable.yaml     # exit code 1
-uv run redgrade run -c examples/redgrade.hardened.yaml       # exit code 0
+uv run redgrade run -c examples/redgrade.vulnerable.yaml --trials 3     # exit code 1
+uv run redgrade run -c examples/redgrade.hardened.yaml --trials 3       # exit code 0
 ```
 
 | | vulnerable app | hardened app |
 |---|---|---|
-| Overall ASR | 91% | 9% |
-| Indirect prompt injection | 100% | 0% |
+| Overall ASR | 60% | 2% |
+| PI Maturity Score | 22/100 | 98/100 |
+| Highest resisted level | n/a | L5 |
+| Indirect prompt injection | 50% | 0% |
 | RAG poisoning | 60% | 0% |
 | Leaks (prompt, secrets, PII) | 100% | 0% |
 | Gate | **FAILED** | passed |
 
-The hardened app is deliberately imperfect: Redgrade still finds three Base64, ROT13 and
-payload-splitting attacks that get through, and says so in the report. That is the point of
-the tool: a green run shows which attacks stopped working, not that the app is safe.
+The hardened app is deliberately imperfect: one medium direct-injection attack (multilingual
+authority blend) still gets through in this simulation; L4 encoding and split variants are
+resisted. That is the point of the tool: a green run shows which attacks stopped working, not that
+the app is safe.
 
 ## Attack against your own app
 
@@ -67,6 +71,10 @@ policy:
   max_asr_by_severity: { critical: 0.0 }
   max_asr_by_family: { prompt_injection_indirect: 0.0 }
   require_families: [prompt_injection_direct, prompt_injection_indirect]
+  # optional prompt-injection posture gates (see docs/writing-attacks.md):
+  # min_pi_score: 70
+  # min_resisted_level: 3
+  # max_asr_by_level: { 4: 0.2, 5: 0.3 }
 ```
 
 For indirect attacks Redgrade passes the poisoned text as `documents`: map it to whatever your app
@@ -82,13 +90,13 @@ and the report shows a coverage matrix so planned families never look "tested".
 
 | family | OWASP | attacks | state |
 |---|---|---|---|
-| Direct prompt injection | LLM01 | 10 | shipped |
-| Indirect prompt injection (documents, web pages, CVs) | LLM01 | 5 | shipped |
+| Direct prompt injection | LLM01 | 28 | shipped |
+| Indirect prompt injection (documents, web pages, CVs) | LLM01 | 14 | shipped |
 | System prompt, secret and PII leakage | LLM02, LLM07 | 7 | shipped |
 | Unsafe output handling (markdown exfiltration) | LLM05 | 2 | shipped |
 | Unbounded consumption | LLM10 | 2 | shipped |
 | RAG and vector poisoning | LLM08 | 5 | shipped |
-| Multi-turn escalation | LLM01 | 4 | shipped |
+| Multi-turn escalation | LLM01 | 5 | shipped |
 | More output handling (HTML/XSS, SQL/shell in output) | LLM05 | | later |
 | Agent goal hijack and tool misuse | LLM06, ASI01 | | 0.3 |
 | MCP: tool poisoning, rug pull, shadowing, confused deputy | LLM06 | | 0.3 |

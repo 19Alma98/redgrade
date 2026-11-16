@@ -2,14 +2,16 @@
 
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from redgrade.constants import (
     DELIVERY_DIRECT,
     DETECT_ON_LAST,
+    MUTATE_SCOPE_ALL,
     SEVERITIES,
     Delivery,
     DetectOn,
+    MutateScope,
     Severity,
 )
 from redgrade.types import DetectorArgs
@@ -64,7 +66,18 @@ class Attack(BaseModel):
     detect_on: DetectOn = DETECT_ON_LAST
     detector_args: DetectorArgs = Field(default_factory=dict)
     requires_secrets: bool = False
+    level: int | None = None
+    technique: str = ""
+    mutations: tuple[str, ...] = ()
+    mutate_scope: MutateScope = MUTATE_SCOPE_ALL
     description: str = ""
+
+    @field_validator("level")
+    @classmethod
+    def _level_in_range(cls, v: int | None) -> int | None:
+        if v is not None and not (1 <= v <= 5):
+            raise ValueError("level must be between 1 and 5")
+        return v
 
     @model_validator(mode="after")
     def _prompt_xor_turns(self) -> Self:

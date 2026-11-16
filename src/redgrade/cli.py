@@ -32,11 +32,17 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _truncate(text: str, max_len: int) -> str:
+    return text if len(text) <= max_len else text[: max_len - 1] + "…"
+
+
 def _cmd_list(args: argparse.Namespace) -> int:
     attacks = load_attacks(extra_packs=args.pack, families=args.family or None)
-    print(f"{'ID':<10}{'SEVERITY':<10}{'OWASP':<14}{'FAMILY':<28}TITLE")
+    print(f"{'ID':<10}{'LEVEL':<6}{'TECHNIQUE':<22}{'SEVERITY':<10}{'OWASP':<14}{'FAMILY':<28}TITLE")
     for a in attacks:
-        print(f"{a.id:<10}{a.severity:<10}{a.owasp:<14}{a.family:<28}{a.title}")
+        level = "" if a.level is None else str(a.level)
+        technique = _truncate(a.technique, 20)
+        print(f"{a.id:<10}{level:<6}{technique:<22}{a.severity:<10}{a.owasp:<14}{a.family:<28}{a.title}")
     print(f"\n{len(attacks)} attacks")
     print("\nfamilies:")
     for f in FAMILIES:
@@ -71,12 +77,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     print(f"running {len(attacks)} attacks x {config.run.trials} trials", file=sys.stderr)
     run = run_attacks(attacks, target, config.run, on_result=_progress)
     checks = evaluate_policy(run, config.policy)
-    report = to_markdown(run, checks)
+    report = to_markdown(run, checks, config.policy)
     print(report)
     if args.report:
         Path(args.report).write_text(report, encoding="utf-8")
     if args.json:
-        Path(args.json).write_text(to_json(run, checks), encoding="utf-8")
+        Path(args.json).write_text(to_json(run, checks, config.policy), encoding="utf-8")
     return 0 if passed(checks) else 1
 
 
