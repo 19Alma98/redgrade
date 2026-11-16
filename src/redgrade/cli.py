@@ -3,15 +3,15 @@
 Exit codes: 0 gate passed, 1 gate failed, 2 usage or configuration error.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from redgrade import __version__
 from redgrade.config import EXAMPLE, ConfigError, load_config
+from redgrade.constants import DEFAULT_CONFIG_PATH, FAMILY_STATUS_AVAILABLE
 from redgrade.families import FAMILIES
 from redgrade.loader import PackError, load_attacks
 from redgrade.models import AttackResult
@@ -41,7 +41,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
     print("\nfamilies:")
     for f in FAMILIES:
         n = sum(1 for a in attacks if a.family == f.id)
-        status = f"{n} attacks" if f.status == "available" else f"planned v{f.target_release}"
+        status = f"{n} attacks" if f.status == FAMILY_STATUS_AVAILABLE else f"planned v{f.target_release}"
         print(f"  {f.id:<28}{f.owasp:<14}{status}")
     return 0
 
@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("init", help="write an example redgrade.yaml")
-    p.add_argument("path", nargs="?", default="redgrade.yaml")
+    p.add_argument("path", nargs="?", default=DEFAULT_CONFIG_PATH)
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=_cmd_init)
 
@@ -122,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_cmd_list)
 
     p = sub.add_parser("run", help="attack the target and apply the gate")
-    p.add_argument("--config", "-c", default="redgrade.yaml")
+    p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH)
     p.add_argument("--family", action="append", help="only this family (repeatable)")
     p.add_argument("--trials", type=int, help="override run.trials")
     p.add_argument("--report", help="write the Markdown report to this file")
@@ -139,8 +139,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    command: Callable[[argparse.Namespace], int] = args.func
     try:
-        return args.func(args)
+        return command(args)
     except (ConfigError, PackError, TargetError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

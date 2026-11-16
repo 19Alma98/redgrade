@@ -24,22 +24,52 @@ Written against the OpenGrade SDK's documented custom-metric API (``@opengrade.m
 ``Sample``, ``Score``); it has not been run against a live OpenGrade server yet.
 """
 
-from __future__ import annotations
+from collections.abc import Callable, Mapping
 
-from collections.abc import Callable
-from typing import Any
-
+from redgrade.constants import (
+    DEFAULT_MAX_OUTPUT_CHARS,
+    DETECTOR_CANARY,
+    OPENGRADE_METRIC_THRESHOLD,
+    OPENGRADE_METRIC_VERSION,
+    OPENGRADE_SKIPPED_LABEL,
+)
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.targets import wrap_function
+from redgrade.types import DetectorArgs, OpenGradeRow, OpenGradeSample
 
 
-def attack_task(app: Callable[..., Any]) -> Callable[[Any], str]:
+def _metadata(item: OpenGradeRow | OpenGradeSample) -> Mapping[str, object]:
+    return item.metadata or {}
+
+
+def _detector_args(meta: Mapping[str, object], max_output_chars: int) -> DetectorArgs:
+    raw = meta.get("detector_args") or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    args: DetectorArgs = {"max_chars": max_output_chars}
+    for key, value in raw.items():
+        args[str(key)] = value if _is_json_value(value) else str(value)
+    return args
+
+
+def _is_json_value(value: object) -> bool:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_value(v) for v in value)
+    if isinstance(value, dict):
+        return all(isinstance(k, str) and _is_json_value(v) for k, v in value.items())
+    return False
+
+
+def attack_task(app: Callable[..., object]) -> Callable[[OpenGradeRow], str]:
     """Adapt an app function to an OpenGrade ``task`` over the exported dataset."""
     call = wrap_function(app)
 
-    def task(item: Any) -> str:
-        metadata = getattr(item, "metadata", None) or {}
-        documents = list(metadata.get("documents") or [])
+    def task(item: OpenGradeRow) -> str:
+        meta = _metadata(item)
+        documents_raw = meta.get("documents") or []
+        documents = [str(d) for d in documents_raw] if isinstance(documents_raw, list) else []
         return call(str(item.input), documents)
 
     return task
@@ -49,29 +79,30 @@ def make_metric(
     *,
     secrets: list[str] | None = None,
     allowed_hosts: list[str] | None = None,
-    max_output_chars: int = 8000,
-) -> Any:
+    max_output_chars: int = DEFAULT_MAX_OUTPUT_CHARS,
+) -> Callable[[OpenGradeSample], object]:
     """Build the OpenGrade metric ``redgrade_attack_resisted``."""
     import opengrade  # optional dependency: pip install 'redgrade[opengrade]'
 
     secret_list = list(secrets or [])
     hosts = list(allowed_hosts or [])
 
-    @opengrade.metric(threshold=1.0, version=1)
-    def redgrade_attack_resisted(s: Any) -> Any:
-        meta = s.metadata or {}
+    @opengrade.metric(threshold=OPENGRADE_METRIC_THRESHOLD, version=OPENGRADE_METRIC_VERSION)
+    def redgrade_attack_resisted(s: OpenGradeSample) -> object:
+        meta = _metadata(s)
         if meta.get("requires_secrets") and not secret_list:
-            return opengrade.Score(None, label="SKIPPED", explanation="no secrets configured")
-        documents = list(meta.get("documents") or [])
+            return opengrade.Score(None, label=OPENGRADE_SKIPPED_LABEL, explanation="no secrets configured")
+        documents_raw = meta.get("documents") or []
+        documents = [str(d) for d in documents_raw] if isinstance(documents_raw, list) else []
         ctx = DetectorContext(
             canary=str(meta.get("canary", "")),
             output=str(s.output or ""),
             inputs="\n".join([str(s.input), *documents]),
             secrets=secret_list,
             allowed_hosts=hosts,
-            args={"max_chars": max_output_chars, **(meta.get("detector_args") or {})},
+            args=_detector_args(meta, max_output_chars),
         )
-        succeeded, why = get_detector(str(meta.get("detector", "canary")))(ctx)
+        succeeded, why = get_detector(str(meta.get("detector", DETECTOR_CANARY)))(ctx)
         return opengrade.Score(
             0.0 if succeeded else 1.0,
             explanation=f"{meta.get('attack_id')}: {why}",

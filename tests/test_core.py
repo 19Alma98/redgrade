@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 import base64
 
-import httpx
+import httpx2
 import pytest
 
+from redgrade.constants import FAMILY_STATUS_AVAILABLE
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.families import FAMILY_BY_ID
 from redgrade.loader import PackError, load_attacks, load_builtin_attacks, load_pack_file
@@ -99,7 +98,7 @@ def test_builtin_packs_are_consistent():
     assert len(ids) == len(set(ids))
     for a in attacks:
         assert a.family in FAMILY_BY_ID
-        assert FAMILY_BY_ID[a.family].status == "available"
+        assert FAMILY_BY_ID[a.family].status == FAMILY_STATUS_AVAILABLE
         assert a.owasp
         if a.delivery == "document":
             assert a.document
@@ -108,7 +107,7 @@ def test_builtin_packs_are_consistent():
 def test_every_family_marked_available_has_attacks():
     present = {a.family for a in load_builtin_attacks()}
     for fam in FAMILY_BY_ID.values():
-        if fam.status == "available":
+        if fam.status == FAMILY_STATUS_AVAILABLE:
             assert fam.id in present, fam.id
 
 
@@ -158,9 +157,9 @@ def test_attacks_needing_secrets_are_skipped_without_them():
 
 
 def test_flaky_attack_is_flagged():
-    r = AttackResult(attack(), [Trial(succeeded=True), Trial(succeeded=False)])
+    r = AttackResult(attack=attack(), trials=[Trial(succeeded=True), Trial(succeeded=False)])
     assert r.flaky and r.asr == 0.5
-    assert not AttackResult(attack(), [Trial(succeeded=True)]).flaky
+    assert not AttackResult(attack=attack(), trials=[Trial(succeeded=True)]).flaky
 
 
 def test_concurrency_runs_all_attacks():
@@ -175,10 +174,10 @@ def test_concurrency_runs_all_attacks():
 def _run(*specs):
     results = []
     for sev, fam, wins, n in specs:
-        r = AttackResult(attack(severity=sev, family=fam))
+        r = AttackResult(attack=attack(severity=sev, family=fam))
         r.trials = [Trial(succeeded=i < wins) for i in range(n)]
         results.append(r)
-    return RunResult(results, 3)
+    return RunResult(results=results, trials_per_attack=3)
 
 
 def test_policy_overall_and_severity():
@@ -212,14 +211,14 @@ def test_wrap_function_passes_documents_only_when_accepted():
 def test_http_target_fills_template_and_reads_path():
     seen = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         import json
 
         seen["body"] = json.loads(request.content)
         seen["auth"] = request.headers.get("authorization")
-        return httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
+        return httpx2.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = httpx2.Client(transport=httpx2.MockTransport(handler))
     target = HttpTarget(
         "http://app/chat",
         body={"message": "{{prompt}}", "docs": "{{documents}}"},
@@ -233,6 +232,49 @@ def test_http_target_fills_template_and_reads_path():
 
 
 def test_http_target_error_is_wrapped():
-    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+    client = httpx2.Client(transport=httpx2.MockTransport(lambda r: httpx2.Response(500)))
     with pytest.raises(TargetError):
         HttpTarget("http://app", client=client)("q", [])
+
+
+# --- config / targets factory ---------------------------------------------------------------
+
+
+def test_config_loader_function_and_http_targets(tmp_path):
+    from redgrade.config import ConfigError, load_config
+    from redgrade.constants import DEFAULT_MAX_OUTPUT_CHARS
+    from redgrade.targets import FunctionTargetConfig, HttpTargetConfig
+
+    fn = tmp_path / "fn.yaml"
+    fn.write_text(
+        "target:\n  type: function\n  path: examples.demo_app:vulnerable\n"
+        "run:\n  trials: 2\npolicy:\n  max_asr: 0.5\n"
+    )
+    cfg = load_config(fn)
+    assert isinstance(cfg.target, FunctionTargetConfig)
+    assert cfg.target.path == "examples.demo_app:vulnerable"
+    assert cfg.run.trials == 2
+    assert cfg.run.max_output_chars == DEFAULT_MAX_OUTPUT_CHARS
+
+    http = tmp_path / "http.yaml"
+    http.write_text(
+        "target:\n  type: http\n  url: http://localhost:9/chat\n  timeout: 1.5\n"
+        "run:\n  trials: 1\npolicy: {}\n"
+    )
+    hcfg = load_config(http)
+    assert isinstance(hcfg.target, HttpTargetConfig)
+    assert hcfg.target.url == "http://localhost:9/chat"
+    assert hcfg.target.timeout == 1.5
+    assert hcfg.run.trials == 1
+
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("target:\n  type: http\nrun: {}\n")
+    with pytest.raises(ConfigError):
+        load_config(bad)
+
+
+def test_target_factory_rejects_unknown_type():
+    from redgrade.targets import TargetFactory
+
+    with pytest.raises(TargetError, match="unknown target type"):
+        TargetFactory().build({"type": "grpc", "path": "x:y"})

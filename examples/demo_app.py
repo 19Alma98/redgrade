@@ -10,8 +10,6 @@ data, and output filtering. It is deliberately imperfect: it does not decode Bas
 reassemble split payloads, so Redgrade still finds those gaps.
 """
 
-from __future__ import annotations
-
 import base64
 import codecs
 import re

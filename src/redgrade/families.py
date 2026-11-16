@@ -6,32 +6,85 @@ OWASP Top 10 for Agentic Applications (2026).
 "everything was tested".
 """
 
-from __future__ import annotations
+from pydantic import BaseModel, ConfigDict
 
-from dataclasses import dataclass
+from redgrade.constants import FAMILY_STATUS_AVAILABLE, FAMILY_STATUS_PLANNED, FamilyStatus
 
 
-@dataclass(frozen=True)
-class Family:
+class Family(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     id: str
     name: str
     owasp: str
-    status: str  # available | planned
+    status: FamilyStatus
     target_release: str
 
 
 FAMILIES: tuple[Family, ...] = (
-    Family("prompt_injection_direct", "Direct prompt injection", "LLM01", "available", "0.1"),
-    Family("prompt_injection_indirect", "Indirect prompt injection", "LLM01", "available", "0.1"),
-    Family("info_disclosure", "System prompt / secret / PII leakage", "LLM02, LLM07", "available", "0.1"),
-    Family("output_handling", "Unsafe output handling (exfiltration)", "LLM05", "available", "0.1"),
-    Family("resource_abuse", "Unbounded consumption", "LLM10", "available", "0.1"),
-    Family("rag_poisoning", "RAG and vector poisoning", "LLM08", "planned", "0.2"),
-    Family("agent_goal_hijack", "Agent goal hijack and tool misuse", "LLM06, ASI01", "planned", "0.3"),
     Family(
-        "mcp_attacks", "MCP: tool poisoning, rug pull, shadowing, confused deputy", "LLM06", "planned", "0.3"
+        id="prompt_injection_direct",
+        name="Direct prompt injection",
+        owasp="LLM01",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.1",
     ),
-    Family("jailbreak", "Jailbreak and harmful content", "LLM01", "planned", "0.4"),
+    Family(
+        id="prompt_injection_indirect",
+        name="Indirect prompt injection",
+        owasp="LLM01",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.1",
+    ),
+    Family(
+        id="info_disclosure",
+        name="System prompt / secret / PII leakage",
+        owasp="LLM02, LLM07",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.1",
+    ),
+    Family(
+        id="output_handling",
+        name="Unsafe output handling (exfiltration)",
+        owasp="LLM05",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.1",
+    ),
+    Family(
+        id="resource_abuse",
+        name="Unbounded consumption",
+        owasp="LLM10",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.1",
+    ),
+    Family(
+        id="rag_poisoning",
+        name="RAG and vector poisoning",
+        owasp="LLM08",
+        status=FAMILY_STATUS_PLANNED,
+        target_release="0.2",
+    ),
+    Family(
+        id="agent_goal_hijack",
+        name="Agent goal hijack and tool misuse",
+        owasp="LLM06, ASI01",
+        status=FAMILY_STATUS_PLANNED,
+        target_release="0.3",
+    ),
+    Family(
+        id="mcp_attacks",
+        name="MCP: tool poisoning, rug pull, shadowing, confused deputy",
+        owasp="LLM06",
+        status=FAMILY_STATUS_PLANNED,
+        target_release="0.3",
+    ),
+    Family(
+        id="jailbreak",
+        name="Jailbreak and harmful content",
+        owasp="LLM01",
+        status=FAMILY_STATUS_PLANNED,
+        target_release="0.4",
+    ),
 )
 
 FAMILY_BY_ID = {f.id: f for f in FAMILIES}

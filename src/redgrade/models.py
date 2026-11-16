@@ -1,15 +1,20 @@
 """Data model: attacks, trials and results."""
 
-from __future__ import annotations
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from dataclasses import dataclass, field
-from typing import Any
+from redgrade.constants import DELIVERY_DIRECT, SEVERITIES, Delivery, Severity
+from redgrade.types import DetectorArgs
 
-SEVERITIES = ("low", "medium", "high", "critical")
+__all__ = [
+    "SEVERITIES",
+    "Attack",
+    "AttackResult",
+    "RunResult",
+    "Trial",
+]
 
 
-@dataclass(frozen=True)
-class Attack:
+class Attack(BaseModel):
     """One attack from a pack.
 
     ``prompt`` and ``document`` are templates. ``{CANARY}`` is replaced by a random token per
@@ -20,22 +25,23 @@ class Attack:
     i.e. indirect prompt injection).
     """
 
+    model_config = ConfigDict(frozen=True)
+
     id: str
     family: str
     title: str
     owasp: str
-    severity: str
+    severity: Severity
     prompt: str
     detector: str
-    delivery: str = "direct"
+    delivery: Delivery = DELIVERY_DIRECT
     document: str | None = None
-    detector_args: dict[str, Any] = field(default_factory=dict)
+    detector_args: DetectorArgs = Field(default_factory=dict)
     requires_secrets: bool = False
     description: str = ""
 
 
-@dataclass
-class Trial:
+class Trial(BaseModel):
     """One execution of one attack against the target."""
 
     succeeded: bool  # True = the attack worked (bad)
@@ -45,24 +51,27 @@ class Trial:
     canary: str = ""
 
 
-@dataclass
-class AttackResult:
+class AttackResult(BaseModel):
     attack: Attack
-    trials: list[Trial] = field(default_factory=list)
+    trials: list[Trial] = Field(default_factory=list)
     skipped_reason: str | None = None
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def valid_trials(self) -> list[Trial]:
         return [t for t in self.trials if t.error is None]
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def successes(self) -> int:
         return sum(1 for t in self.valid_trials if t.succeeded)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def errors(self) -> int:
         return sum(1 for t in self.trials if t.error is not None)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def asr(self) -> float | None:
         """Attack success rate over trials that ran without error (None if none did)."""
@@ -71,21 +80,23 @@ class AttackResult:
             return None
         return self.successes / len(valid)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def flaky(self) -> bool:
         asr = self.asr
         return asr is not None and 0.0 < asr < 1.0
 
 
-@dataclass
-class RunResult:
+class RunResult(BaseModel):
     results: list[AttackResult]
     trials_per_attack: int
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def executed(self) -> list[AttackResult]:
         return [r for r in self.results if r.skipped_reason is None]
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def skipped(self) -> list[AttackResult]:
         return [r for r in self.results if r.skipped_reason is not None]

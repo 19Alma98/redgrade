@@ -6,3 +6,4 @@ dist/
 .ruff_cache/
 report.md
 redgrade.json
+superpowers/
