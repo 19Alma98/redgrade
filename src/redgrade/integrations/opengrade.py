@@ -28,6 +28,8 @@ from collections.abc import Callable, Mapping
 
 from redgrade.constants import (
     DEFAULT_MAX_OUTPUT_CHARS,
+    DETECT_ON_ANY,
+    DETECT_ON_LAST,
     DETECTOR_CANARY,
     OPENGRADE_METRIC_THRESHOLD,
     OPENGRADE_METRIC_VERSION,
@@ -35,7 +37,7 @@ from redgrade.constants import (
 )
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.targets import wrap_function
-from redgrade.types import DetectorArgs, OpenGradeRow, OpenGradeSample
+from redgrade.types import DetectorArgs, HistoryMessage, OpenGradeRow, OpenGradeSample
 
 
 def _metadata(item: OpenGradeRow | OpenGradeSample) -> Mapping[str, object]:
@@ -68,6 +70,38 @@ def attack_task(app: Callable[..., object]) -> Callable[[OpenGradeRow], str]:
 
     def task(item: OpenGradeRow) -> str:
         meta = _metadata(item)
+        turns_raw = meta.get("turns")
+        if isinstance(turns_raw, list) and turns_raw:
+            canary = str(meta.get("canary", ""))
+            detect_on = str(meta.get("detect_on", DETECT_ON_LAST))
+            detector_name = str(meta.get("detector", DETECTOR_CANARY))
+            history: list[HistoryMessage] = []
+            all_inputs: list[str] = []
+            last_output = ""
+            for turn in turns_raw:
+                if not isinstance(turn, dict):
+                    continue
+                prompt = str(turn.get("prompt", ""))
+                docs_raw = turn.get("documents") or []
+                documents = [str(d) for d in docs_raw] if isinstance(docs_raw, list) else []
+                all_inputs.extend([prompt, *documents])
+                last_output = call(prompt, documents, history)
+                history.append({"role": "user", "content": prompt})
+                history.append({"role": "assistant", "content": last_output})
+                if detect_on == DETECT_ON_ANY:
+                    ctx = DetectorContext(
+                        canary=canary,
+                        output=last_output,
+                        inputs="\n".join(all_inputs),
+                        secrets=[],
+                        allowed_hosts=[],
+                        args=_detector_args(meta, DEFAULT_MAX_OUTPUT_CHARS),
+                    )
+                    succeeded, _ = get_detector(detector_name)(ctx)
+                    if succeeded:
+                        return last_output
+            return last_output
+
         documents_raw = meta.get("documents") or []
         documents = [str(d) for d in documents_raw] if isinstance(documents_raw, list) else []
         return call(str(item.input), documents)

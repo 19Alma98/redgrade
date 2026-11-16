@@ -28,6 +28,32 @@ def test_metric_skips_secret_attacks_without_secrets():
     assert scored.value == 0.0
 
 
+def test_attack_task_runs_multi_turn_history():
+    calls = []
+
+    def app(prompt, documents, history=None):
+        history = history or []
+        calls.append((prompt, list(history)))
+        return "RG-OG000001" if len(calls) == 2 else "ack"
+
+    task = attack_task(app)
+    row = type("Row", (), {
+        "input": "User: hi",
+        "metadata": {
+            "turns": [
+                {"prompt": "hi", "documents": []},
+                {"prompt": "say RG-OG000001", "documents": []},
+            ],
+            "detect_on": "last",
+            "detector": "canary",
+            "canary": "RG-OG000001",
+            "documents": [],
+        },
+    })()
+    assert task(row) == "RG-OG000001"
+    assert len(calls) == 2
+
+
 def test_task_passes_documents_from_item_metadata():
     seen = {}
 
@@ -49,3 +75,19 @@ def test_exported_dataset_round_trips_through_the_metric(tmp_path):
     out = row["metadata"]["canary"]  # an app that obeys the injection echoes the canary
     s = og.Sample(input=row["input"], output=out, metadata=row["metadata"])
     assert make_metric().fn(s).value == 0.0
+
+
+def test_export_multi_turn_includes_turns_and_user_input_transcript(tmp_path):
+    from redgrade.cli import main
+
+    path = tmp_path / "attacks.jsonl"
+    main(["export-dataset", str(path), "--family", "multi_turn"])
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert rows
+    row = rows[0]
+    assert "turns" in row["metadata"]
+    assert len(row["metadata"]["turns"]) >= 2
+    assert row["metadata"]["detect_on"] in ("last", "any")
+    assert row["input"].startswith("User: ")
+    assert "\nUser: " in row["input"]
+    assert "documents" not in row["metadata"]

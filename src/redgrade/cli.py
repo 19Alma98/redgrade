@@ -16,7 +16,7 @@ from redgrade.families import FAMILIES
 from redgrade.loader import PackError, load_attacks
 from redgrade.models import AttackResult
 from redgrade.policy import evaluate_policy, passed
-from redgrade.render import render_attack
+from redgrade.render import render_attack, render_turns
 from redgrade.report import to_json, to_markdown
 from redgrade.runner import new_canary, run_attacks
 from redgrade.targets import TargetError, build_target
@@ -86,21 +86,34 @@ def _cmd_export(args: argparse.Namespace) -> int:
     with open(args.output, "w", encoding="utf-8") as fh:
         for a in attacks:
             canary = new_canary()
-            prompt, documents = render_attack(a, canary)
-            row = {
-                "input": prompt,
-                "metadata": {
-                    "attack_id": a.id,
-                    "family": a.family,
-                    "owasp": a.owasp,
-                    "severity": a.severity,
-                    "detector": a.detector,
-                    "detector_args": a.detector_args,
-                    "requires_secrets": a.requires_secrets,
-                    "canary": canary,
-                    "documents": documents,
-                },
+            meta = {
+                "attack_id": a.id,
+                "family": a.family,
+                "owasp": a.owasp,
+                "severity": a.severity,
+                "detector": a.detector,
+                "detector_args": a.detector_args,
+                "requires_secrets": a.requires_secrets,
+                "canary": canary,
             }
+            if a.turns:
+                rendered = render_turns(a, canary)
+                row = {
+                    "input": "\n".join(f"User: {p}" for p, _ in rendered),
+                    "metadata": {
+                        **meta,
+                        "detect_on": a.detect_on,
+                        "turns": [
+                            {"prompt": p, "documents": docs} for p, docs in rendered
+                        ],
+                    },
+                }
+            else:
+                prompt, documents = render_attack(a, canary)
+                row = {
+                    "input": prompt,
+                    "metadata": {**meta, "documents": documents},
+                }
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     print(f"wrote {len(attacks)} attacks to {args.output}")
     return 0
