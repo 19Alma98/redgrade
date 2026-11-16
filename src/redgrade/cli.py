@@ -1,4 +1,4 @@
-"""Command line: ``redgrade init | list | run | export-dataset``.
+"""Command line: ``redgrade init | list | run | export-dataset | deep``.
 
 Exit codes: 0 gate passed, 1 gate failed, 2 usage or configuration error.
 """
@@ -95,6 +95,43 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0 if report.passed else 1
 
 
+def _cmd_deep(args: argparse.Namespace) -> int:
+    from redgrade.deep.config import build_deep_target, load_deep_config
+    from redgrade.deep.errors import DeepError
+    from redgrade.deep.sdk import deep_attack
+
+    config = load_deep_config(args.config)
+    if args.attacker_model:
+        config = config.model_copy(
+            update={"attacker": config.attacker.model_copy(update={"model": args.attacker_model})}
+        )
+    if args.max_rounds is not None:
+        config = config.model_copy(update={"max_rounds": args.max_rounds})
+    try:
+        target = build_deep_target(config.target)
+        report = deep_attack(
+            target,
+            attacker_model=config.attacker.model,
+            attacker_api_base=config.attacker.api_base,
+            goals=config.goals or None,
+            seed_attack_ids=config.seed_attack_ids or None,
+            max_rounds=config.max_rounds,
+            policy=config.policy,
+            secrets=config.secrets or None,
+            allowed_hosts=config.allowed_hosts or None,
+            packs=config.packs or None,
+        )
+    except DeepError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    md = report.to_markdown()
+    print(md)
+    if args.report:
+        Path(args.report).write_text(md, encoding="utf-8")
+    return 0 if report.passed else 1
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     """Write the attacks as an OpenGrade dataset (JSONL): one row per attack, fixed canary."""
     attacks = load_attacks(extra_packs=args.pack, families=args.family or None)
@@ -154,6 +191,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--report", help="write the Markdown report to this file")
     p.add_argument("--json", help="write the JSON report to this file")
     p.set_defaults(func=_cmd_run)
+
+    p = sub.add_parser("deep", help="adaptive deep attack against the target")
+    p.add_argument("--config", "-c", required=True, help="deep config YAML")
+    p.add_argument("--attacker-model", help="override attacker.model")
+    p.add_argument("--max-rounds", type=int, help="override max_rounds")
+    p.add_argument("--report", help="write the Markdown report to this file")
+    p.set_defaults(func=_cmd_deep)
 
     p = sub.add_parser("export-dataset", help="export attacks as an OpenGrade JSONL dataset")
     p.add_argument("output")
