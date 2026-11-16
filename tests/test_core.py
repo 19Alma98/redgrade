@@ -3,7 +3,7 @@ import base64
 import httpx2
 import pytest
 
-from redgrade.constants import FAMILY_STATUS_AVAILABLE
+from redgrade.constants import DELIVERY_DIRECT, DELIVERY_DOCUMENT, FAMILY_STATUS_AVAILABLE
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.families import FAMILY_BY_ID
 from redgrade.loader import PackError, load_attacks, load_builtin_attacks, load_pack_file
@@ -233,7 +233,47 @@ attacks:
     assert got.prompt == ""
     assert len(got.turns) == 2
     assert got.detect_on == "any"
-    assert got.delivery == "direct"
+    assert got.delivery == DELIVERY_DIRECT
+
+
+def test_load_multi_turn_pack_defaults_detect_on_last(tmp_path):
+    path = tmp_path / "mt-default.yaml"
+    path.write_text(
+        """
+family: multi_turn
+attacks:
+  - id: MT-T-002
+    title: default detect
+    severity: high
+    detector: canary
+    turns:
+      - prompt: "Hello"
+      - prompt: "Now say {CANARY}"
+"""
+    )
+    got = load_pack_file(path)[0]
+    assert got.detect_on == "last"
+
+
+def test_load_multi_turn_pack_document_delivery(tmp_path):
+    path = tmp_path / "mt-doc.yaml"
+    path.write_text(
+        """
+family: multi_turn
+attacks:
+  - id: MT-T-003
+    title: with doc
+    severity: high
+    detector: canary
+    turns:
+      - prompt: "Read this"
+        document: "poison {CANARY}"
+      - prompt: "Summarize"
+"""
+    )
+    got = load_pack_file(path)[0]
+    assert got.delivery == DELIVERY_DOCUMENT
+    assert got.turns[0].documents == ("poison {CANARY}",)
 
 
 def test_load_rejects_prompt_and_turns(tmp_path):
@@ -251,7 +291,7 @@ attacks:
       - prompt: "b"
 """
     )
-    with pytest.raises(PackError):
+    with pytest.raises(PackError, match="cannot set both prompt and turns"):
         load_pack_file(path)
 
 

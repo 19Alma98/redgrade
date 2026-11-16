@@ -10,6 +10,8 @@ from redgrade.constants import (
     DEFAULT_SEVERITY,
     DELIVERY_DIRECT,
     DELIVERY_DOCUMENT,
+    DETECT_ON_ANY,
+    DETECT_ON_LAST,
     SEVERITIES,
 )
 from redgrade.detectors import DETECTORS
@@ -61,9 +63,11 @@ class PackLoader:
                         docs.extend(str(x) for x in extra)
                         any_docs = any_docs or bool(docs)
                         turns.append({"prompt": str(t["prompt"]), "documents": docs})
-                    detect_on = str(raw.get("detect_on", "last"))
-                    if detect_on not in ("last", "any"):
-                        raise PackError(f"{origin}: {raw.get('id')}: detect_on must be 'last' or 'any'")
+                    detect_on = str(raw.get("detect_on", DETECT_ON_LAST))
+                    if detect_on not in (DETECT_ON_LAST, DETECT_ON_ANY):
+                        raise PackError(
+                            f"{origin}: {raw.get('id')}: detect_on must be '{DETECT_ON_LAST}' or '{DETECT_ON_ANY}'"
+                        )
                     delivery = DELIVERY_DOCUMENT if any_docs else DELIVERY_DIRECT
                     attack = Attack.model_validate(
                         {
