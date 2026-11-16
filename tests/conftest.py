@@ -1,7 +1,5 @@
 """Pytest path: ``examples.demo_app`` resolves from repo root."""
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 

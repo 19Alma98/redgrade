@@ -1,6 +1,4 @@
 # tests/test_deep_client.py
-from __future__ import annotations
-
 from types import SimpleNamespace
 
 import pytest

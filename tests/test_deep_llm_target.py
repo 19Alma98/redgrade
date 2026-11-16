@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from types import SimpleNamespace
 
 from redgrade.deep.llm_target import LlmTarget

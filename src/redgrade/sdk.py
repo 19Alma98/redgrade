@@ -1,7 +1,5 @@
 """Public SDK: attack an HTTP app endpoint and return an AttackReport."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 
 from pydantic import BaseModel, ConfigDict, Field
