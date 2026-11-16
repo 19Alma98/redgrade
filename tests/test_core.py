@@ -184,7 +184,10 @@ def test_builtin_packs_are_consistent():
         assert FAMILY_BY_ID[a.family].status == FAMILY_STATUS_AVAILABLE
         assert a.owasp
         if a.delivery == "document":
-            assert a.document
+            if a.turns:
+                assert any(t.documents for t in a.turns), a.id
+            else:
+                assert a.document
 
 
 def test_every_family_marked_available_has_attacks():
@@ -192,6 +195,16 @@ def test_every_family_marked_available_has_attacks():
     for fam in FAMILY_BY_ID.values():
         if fam.status == FAMILY_STATUS_AVAILABLE:
             assert fam.id in present, fam.id
+
+
+def test_rag_and_multi_turn_families_ship_attacks():
+    by_fam = {}
+    for a in load_builtin_attacks():
+        by_fam.setdefault(a.family, []).append(a)
+    assert len(by_fam["rag_poisoning"]) >= 5
+    assert len(by_fam["multi_turn"]) >= 4
+    assert FAMILY_BY_ID["rag_poisoning"].status == FAMILY_STATUS_AVAILABLE
+    assert FAMILY_BY_ID["multi_turn"].status == FAMILY_STATUS_AVAILABLE
 
 
 def test_load_filters_by_family():

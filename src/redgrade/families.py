@@ -61,7 +61,14 @@ FAMILIES: tuple[Family, ...] = (
         id="rag_poisoning",
         name="RAG and vector poisoning",
         owasp="LLM08",
-        status=FAMILY_STATUS_PLANNED,
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.2",
+    ),
+    Family(
+        id="multi_turn",
+        name="Multi-turn escalation",
+        owasp="LLM01",
+        status=FAMILY_STATUS_AVAILABLE,
         target_release="0.2",
     ),
     Family(
