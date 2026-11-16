@@ -5,7 +5,7 @@ from redgrade.models import Attack, AttackResult, RunResult, Trial
 from redgrade.policy import Policy, evaluate_policy
 from redgrade.runner import RunConfig, run_attacks
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Attack",

@@ -12,7 +12,7 @@ import os
 import re
 import sys
 from collections.abc import Callable, Mapping
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 import httpx2
 from pydantic import BaseModel, Field
@@ -123,7 +123,7 @@ def _fill(
         if node == TEMPLATE_DOCUMENTS:
             return list(documents)
         if node == TEMPLATE_HISTORY:
-            return list(history)
+            return cast(JsonValue, list(history))
         return (
             node.replace(TEMPLATE_PROMPT, prompt)
             .replace(TEMPLATE_DOCUMENTS, "\n\n".join(documents))

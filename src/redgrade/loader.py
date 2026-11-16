@@ -48,25 +48,28 @@ class PackLoader:
                     if raw.get("prompt") is not None:
                         raise PackError(f"{origin}: {raw.get('id')}: cannot set both prompt and turns")
                     if not isinstance(raw_turns, list) or len(raw_turns) < 2:
-                        raise PackError(f"{origin}: {raw.get('id')}: turns must be a list of at least 2 items")
-                    turns: list[dict] = []
+                        raise PackError(
+                            f"{origin}: {raw.get('id')}: turns must be a list of at least 2 items"
+                        )
+                    turns: list[dict[str, object]] = []
                     any_docs = False
                     for i, t in enumerate(raw_turns):
                         if not isinstance(t, dict) or "prompt" not in t:
                             raise PackError(f"{origin}: {raw.get('id')}: turn {i} needs prompt")
-                        docs: list[str] = []
+                        turn_docs: list[str] = []
                         if t.get("document") is not None:
-                            docs.append(str(t["document"]))
+                            turn_docs.append(str(t["document"]))
                         extra = t.get("documents") or []
                         if not isinstance(extra, list):
                             raise PackError(f"{origin}: {raw.get('id')}: turn documents must be a list")
-                        docs.extend(str(x) for x in extra)
-                        any_docs = any_docs or bool(docs)
-                        turns.append({"prompt": str(t["prompt"]), "documents": docs})
+                        turn_docs.extend(str(x) for x in extra)
+                        any_docs = any_docs or bool(turn_docs)
+                        turns.append({"prompt": str(t["prompt"]), "documents": turn_docs})
                     detect_on = str(raw.get("detect_on", DETECT_ON_LAST))
                     if detect_on not in (DETECT_ON_LAST, DETECT_ON_ANY):
                         raise PackError(
-                            f"{origin}: {raw.get('id')}: detect_on must be '{DETECT_ON_LAST}' or '{DETECT_ON_ANY}'"
+                            f"{origin}: {raw.get('id')}: detect_on must be "
+                            f"'{DETECT_ON_LAST}' or '{DETECT_ON_ANY}'"
                         )
                     delivery = DELIVERY_DOCUMENT if any_docs else DELIVERY_DIRECT
                     attack = Attack.model_validate(

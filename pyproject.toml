@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "redgrade"
-version = "0.1.0"
+version = "0.2.0"
 description = "Red-team your LLM app in CI: attack it, measure the attack success rate, fail the pull request on regressions."
 readme = "README.md"
 license = { text = "Apache-2.0" }

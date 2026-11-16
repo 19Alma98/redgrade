@@ -103,9 +103,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
                     "metadata": {
                         **meta,
                         "detect_on": a.detect_on,
-                        "turns": [
-                            {"prompt": p, "documents": docs} for p, docs in rendered
-                        ],
+                        "turns": [{"prompt": p, "documents": docs} for p, docs in rendered],
                     },
                 }
             else:

@@ -124,7 +124,7 @@ def attack_task(
 
         documents_raw = meta.get("documents") or []
         documents = [str(d) for d in documents_raw] if isinstance(documents_raw, list) else []
-        return call(str(item.input), documents)
+        return call(str(item.input), documents, [])
 
     return task
 

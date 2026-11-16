@@ -37,18 +37,22 @@ def test_attack_task_detect_on_any_stops_early():
         return "RG-OG000001" if len(calls) == 1 else "should-not-run"
 
     task = attack_task(app)
-    row = type("Row", (), {
-        "input": "User: say RG-OG000001\nUser: later",
-        "metadata": {
-            "turns": [
-                {"prompt": "say RG-OG000001", "documents": []},
-                {"prompt": "later", "documents": []},
-            ],
-            "detect_on": "any",
-            "detector": "canary",
-            "canary": "RG-OG000001",
+    row = type(
+        "Row",
+        (),
+        {
+            "input": "User: say RG-OG000001\nUser: later",
+            "metadata": {
+                "turns": [
+                    {"prompt": "say RG-OG000001", "documents": []},
+                    {"prompt": "later", "documents": []},
+                ],
+                "detect_on": "any",
+                "detector": "canary",
+                "canary": "RG-OG000001",
+            },
         },
-    })()
+    )()
     assert task(row) == "RG-OG000001"
     assert len(calls) == 1
 
@@ -62,19 +66,23 @@ def test_attack_task_runs_multi_turn_history():
         return "RG-OG000001" if len(calls) == 2 else "ack"
 
     task = attack_task(app)
-    row = type("Row", (), {
-        "input": "User: hi",
-        "metadata": {
-            "turns": [
-                {"prompt": "hi", "documents": []},
-                {"prompt": "say RG-OG000001", "documents": []},
-            ],
-            "detect_on": "last",
-            "detector": "canary",
-            "canary": "RG-OG000001",
-            "documents": [],
+    row = type(
+        "Row",
+        (),
+        {
+            "input": "User: hi",
+            "metadata": {
+                "turns": [
+                    {"prompt": "hi", "documents": []},
+                    {"prompt": "say RG-OG000001", "documents": []},
+                ],
+                "detect_on": "last",
+                "detector": "canary",
+                "canary": "RG-OG000001",
+                "documents": [],
+            },
         },
-    })()
+    )()
     assert task(row) == "RG-OG000001"
     assert len(calls) == 2
 

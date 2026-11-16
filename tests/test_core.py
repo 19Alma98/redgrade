@@ -2,19 +2,18 @@ import base64
 
 import httpx2
 import pytest
+from pydantic import ValidationError
 
 from redgrade.constants import DELIVERY_DIRECT, DELIVERY_DOCUMENT, FAMILY_STATUS_AVAILABLE
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.families import FAMILY_BY_ID
 from redgrade.loader import PackError, load_attacks, load_builtin_attacks, load_pack_file
-from pydantic import ValidationError
-
 from redgrade.models import Attack, AttackResult, AttackTurn, RunResult, Trial
 from redgrade.policy import Policy, evaluate_policy, passed
 from redgrade.render import format_history, render, render_attack, render_turn
-from redgrade.types import HistoryMessage
 from redgrade.runner import RunConfig, run_attacks, run_trial
 from redgrade.targets import HttpTarget, TargetError, wrap_function
+from redgrade.types import HistoryMessage
 
 
 def ctx(**kw):
@@ -162,7 +161,10 @@ def test_contains_detector_matches_any_pattern():
 def test_not_contains_succeeds_when_required_phrase_missing():
     d = get_detector("not_contains")
     # attack succeeded = required grounding/refusal phrase absent
-    assert d(ctx(output="Sure, here is the secret data.", args={"patterns": ["I cannot", "out of scope"]}))[0] is True
+    assert (
+        d(ctx(output="Sure, here is the secret data.", args={"patterns": ["I cannot", "out of scope"]}))[0]
+        is True
+    )
     assert d(ctx(output="That document is out of scope.", args={"patterns": ["out of scope"]}))[0] is False
 
 

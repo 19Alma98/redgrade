@@ -4,8 +4,9 @@
 exfiltration attempts, measures how often they work, and fails the pull request when security
 regresses. Self-hosted, one small package, no SaaS.
 
-> Status: **0.1 (alpha)**. 26 attacks across 5 families. Agent, tool and MCP attacks are on the
-> [roadmap](ROADMAP.md) (0.3). Built to pair with [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
+> Status: **0.2 (alpha)**. 35 attacks across 7 families, including multi-turn escalation and RAG
+> document simulation. Agent, tool and MCP attacks are on the [roadmap](ROADMAP.md) (0.3). Built to
+> pair with [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
 
 ## The problem
 
@@ -49,11 +50,11 @@ redgrade run             # attack, print the report, exit 1 if the gate fails
 # redgrade.yaml
 target:
   type: function                  # or: http
-  path: my_app:answer             # answer(prompt) or answer(prompt, documents) -> str
+  path: my_app:answer             # answer(prompt) or answer(prompt, documents[, history]) -> str
   # type: http
   # url: http://localhost:8000/chat
   # headers: { Authorization: "Bearer ${APP_TOKEN}" }
-  # body: { message: "{{prompt}}", context: "{{documents}}" }
+  # body: { message: "{{prompt}}", context: "{{documents}}", history: "{{history}}" }
   # response_path: choices.0.message.content
 
 run: { trials: 3 }                # model output is random: repeat every attack
@@ -68,7 +69,10 @@ policy:
 ```
 
 For indirect attacks Redgrade passes the poisoned text as `documents`: map it to whatever your app
-treats as retrieved or uploaded content.
+treats as retrieved or uploaded content. Multi-turn attacks call your target once per turn; prior
+user and assistant messages are passed as `history` (third argument to a function target, or
+`{{history}}` in an HTTP body). If the target does not accept history, Redgrade prepends formatted
+prior turns to the current prompt.
 
 ## What it covers today
 
@@ -82,7 +86,9 @@ and the report shows a coverage matrix so planned families never look "tested".
 | System prompt, secret and PII leakage | LLM02, LLM07 | 7 | shipped |
 | Unsafe output handling (markdown exfiltration) | LLM05 | 2 | shipped |
 | Unbounded consumption | LLM10 | 2 | shipped |
-| RAG and vector poisoning | LLM08 | | 0.2 |
+| RAG and vector poisoning | LLM08 | 5 | shipped |
+| Multi-turn escalation | LLM01 | 4 | shipped |
+| More output handling (HTML/XSS, SQL/shell in output) | LLM05 | | later |
 | Agent goal hijack and tool misuse | LLM06, ASI01 | | 0.3 |
 | MCP: tool poisoning, rug pull, shadowing, confused deputy | LLM06 | | 0.3 |
 | Jailbreak and harmful content | LLM01 | | 0.4 |
@@ -97,6 +103,7 @@ Detectors are deterministic, so the same output always gives the same verdict:
   the app obeyed an instruction it should not have.
 - **Secrets**: you list strings that must never appear (parts of the system prompt, keys).
 - **PII, markdown exfiltration, output length**: regex and URL checks.
+- **Contains / not_contains**: substring checks for grounded answers or missing refusals (`detector_args.patterns`).
 
 Safety rules of the gate: a target that errors out is a **failure**, never a pass; attacks that
 need `secrets` are **skipped and reported** when none are configured; attacks that work only some
@@ -125,7 +132,7 @@ from redgrade.integrations.opengrade import attack_task, make_metric
 og = opengrade.Opengrade(project="support-bot")
 og.evaluate(
     dataset="attacks.jsonl",
-    task=attack_task(my_app),
+    task=attack_task(my_app, secrets=["..."], allowed_hosts=["..."]),  # optional for detect_on=any
     metrics=[make_metric(secrets=["..."])],  # 1.0 = attack resisted, 0.0 = attack worked
     baseline="alias:main",
 )

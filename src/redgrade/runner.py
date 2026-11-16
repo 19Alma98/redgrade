@@ -81,9 +81,7 @@ class AttackRunner:
                 history.append({"role": "user", "content": prompt})
                 history.append({"role": "assistant", "content": output})
                 if attack.detect_on == DETECT_ON_ANY:
-                    ctx = self._detector_context(
-                        attack, config, canary, output, "\n".join(all_inputs)
-                    )
+                    ctx = self._detector_context(attack, config, canary, output, "\n".join(all_inputs))
                     succeeded, _ = get_detector(attack.detector)(ctx)
                     if succeeded:
                         return Trial(
@@ -103,9 +101,7 @@ class AttackRunner:
             )
         output = turn_outputs[-1]
         latency = time.perf_counter() - start
-        trial = self._trial_from_output(
-            attack, config, canary, output, "\n".join(all_inputs), latency
-        )
+        trial = self._trial_from_output(attack, config, canary, output, "\n".join(all_inputs), latency)
         return trial.model_copy(update={"turn_outputs": turn_outputs})
 
     def _detector_context(

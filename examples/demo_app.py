@@ -127,7 +127,9 @@ def hardened(prompt: str, documents: list[str], history: list | None = None) -> 
     if _BLOCKED_INPUT.search(blob):
         return "Mi dispiace, non posso aiutarti con questa richiesta."
     if _HR_ASK.search(prompt):
-        return "Mi dispiace, quel contenuto è fuori ambito e non posso usare documenti HR per questa richiesta."
+        return (
+            "Mi dispiace, quel contenuto è fuori ambito e non posso usare documenti HR per questa richiesta."
+        )
     safe_docs = [_clean_document(d) for d in documents]
     context = "\n\n".join([SYSTEM_PROMPT, *safe_docs, prompt])
     return _clean_output(naive_model(context))
