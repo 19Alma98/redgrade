@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Literal
 
 from redgrade.deep.attacker import GoalSpec, PairLiteAttacker
 from redgrade.deep.client import LlmClient
@@ -26,7 +27,7 @@ def _goal_succeeded(trials: list) -> bool:
     return any(t.succeeded for t in trials if t.error is None)
 
 
-def _target_kind(target: Target) -> str:
+def _target_kind(target: Target) -> Literal["http", "llm", "function"]:
     if isinstance(target, HttpTarget):
         return "http"
     if isinstance(target, LlmTarget):
@@ -116,6 +117,6 @@ def deep_attack(
         goals_total=len(goal_specs),
         goals_succeeded=goals_succeeded,
         rounds_used_by_goal={gr.attack.id: gr.rounds_used for gr in goal_runs},
-        target_kind=kind,  # type: ignore[arg-type]
+        target_kind=kind,
     )
     return _build_report(run, checks, policy, deep_meta=deep_meta)
