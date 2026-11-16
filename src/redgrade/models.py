@@ -1,17 +1,36 @@
 """Data model: attacks, trials and results."""
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from typing import Self
 
-from redgrade.constants import DELIVERY_DIRECT, SEVERITIES, Delivery, Severity
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+from redgrade.constants import (
+    DELIVERY_DIRECT,
+    DETECT_ON_LAST,
+    SEVERITIES,
+    Delivery,
+    DetectOn,
+    Severity,
+)
 from redgrade.types import DetectorArgs
 
 __all__ = [
     "SEVERITIES",
     "Attack",
     "AttackResult",
+    "AttackTurn",
     "RunResult",
     "Trial",
 ]
+
+
+class AttackTurn(BaseModel):
+    """One turn in a multi-turn attack."""
+
+    model_config = ConfigDict(frozen=True)
+
+    prompt: str
+    documents: tuple[str, ...] = ()
 
 
 class Attack(BaseModel):
@@ -32,13 +51,27 @@ class Attack(BaseModel):
     title: str
     owasp: str
     severity: Severity
-    prompt: str
+    prompt: str = ""
     detector: str
     delivery: Delivery = DELIVERY_DIRECT
     document: str | None = None
+    turns: tuple[AttackTurn, ...] = ()
+    detect_on: DetectOn = DETECT_ON_LAST
     detector_args: DetectorArgs = Field(default_factory=dict)
     requires_secrets: bool = False
     description: str = ""
+
+    @model_validator(mode="after")
+    def _prompt_xor_turns(self) -> Self:
+        has_turns = len(self.turns) > 0
+        has_prompt = bool(self.prompt)
+        if has_turns and has_prompt:
+            raise ValueError("attack cannot set both prompt and turns")
+        if has_turns and len(self.turns) < 2:
+            raise ValueError("turns must contain at least 2 items")
+        if not has_turns and not has_prompt:
+            raise ValueError("attack requires prompt or turns")
+        return self
 
 
 class Trial(BaseModel):
@@ -46,6 +79,7 @@ class Trial(BaseModel):
 
     succeeded: bool  # True = the attack worked (bad)
     output: str = ""
+    turn_outputs: list[str] = Field(default_factory=list)
     error: str | None = None
     latency_s: float = 0.0
     canary: str = ""

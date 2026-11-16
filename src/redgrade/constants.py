@@ -58,6 +58,13 @@ DEFAULT_HTTP_TIMEOUT: Final = 60.0
 DEFAULT_HTTP_RESPONSE_PATH: Final = "output"
 TEMPLATE_PROMPT: Final = "{{prompt}}"
 TEMPLATE_DOCUMENTS: Final = "{{documents}}"
+TEMPLATE_HISTORY: Final = "{{history}}"
+
+# --- multi-turn detection -------------------------------------------------------------------
+
+DetectOn = Literal["last", "any"]
+DETECT_ON_LAST: Final[Literal["last"]] = "last"
+DETECT_ON_ANY: Final[Literal["any"]] = "any"
 
 # --- misc -----------------------------------------------------------------------------------
 

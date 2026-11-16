@@ -1,7 +1,7 @@
 """Shared typing aliases — prefer these over ``Any``."""
 
 from collections.abc import Mapping
-from typing import Protocol, TypedDict
+from typing import Literal, Protocol, TypedDict
 
 type JsonPrimitive = None | bool | int | float | str
 type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
@@ -11,6 +11,11 @@ type DetectorArgs = dict[str, JsonValue]
 
 # Untyped YAML mapping after ``isinstance(..., dict)`` checks.
 type YamlMapping = Mapping[str, object]
+
+
+class HistoryMessage(TypedDict):
+    role: Literal["user", "assistant"]
+    content: str
 
 
 class FamilyStat(TypedDict):

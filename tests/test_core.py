@@ -7,9 +7,12 @@ from redgrade.constants import FAMILY_STATUS_AVAILABLE
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.families import FAMILY_BY_ID
 from redgrade.loader import PackError, load_attacks, load_builtin_attacks, load_pack_file
-from redgrade.models import Attack, AttackResult, RunResult, Trial
+from pydantic import ValidationError
+
+from redgrade.models import Attack, AttackResult, AttackTurn, RunResult, Trial
 from redgrade.policy import Policy, evaluate_policy, passed
-from redgrade.render import render
+from redgrade.render import format_history, render, render_turn
+from redgrade.types import HistoryMessage
 from redgrade.runner import RunConfig, run_attacks
 from redgrade.targets import HttpTarget, TargetError, wrap_function
 
@@ -43,6 +46,39 @@ def test_render_substitutes_canary_then_encodes():
 
 def test_render_rot13():
     assert render("{rot13:abc}", "RG-0") == "nop"
+
+
+def test_attack_rejects_prompt_and_turns_together():
+    with pytest.raises(ValidationError):
+        attack(prompt="hi", turns=(AttackTurn(prompt="a"), AttackTurn(prompt="b")))
+
+
+def test_attack_requires_at_least_two_turns():
+    with pytest.raises(ValidationError):
+        Attack(
+            id="T-1",
+            family="multi_turn",
+            title="t",
+            owasp="LLM01",
+            severity="high",
+            detector="canary",
+            turns=(AttackTurn(prompt="only"),),
+        )
+
+
+def test_format_history_user_assistant_lines():
+    history: list[HistoryMessage] = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+    ]
+    assert format_history(history) == "User: hi\nAssistant: hello"
+
+
+def test_render_turn_applies_canary_to_docs():
+    turn = AttackTurn(prompt="Q {CANARY}", documents=("Doc {CANARY}",))
+    prompt, docs = render_turn(turn, "RG-DEADBEEF")
+    assert prompt == "Q RG-DEADBEEF"
+    assert docs == ["Doc RG-DEADBEEF"]
 
 
 # --- detectors ------------------------------------------------------------------------------
