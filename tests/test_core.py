@@ -187,7 +187,7 @@ def test_builtin_packs_are_consistent():
             if a.turns:
                 assert any(t.documents for t in a.turns), a.id
             else:
-                assert a.document
+                assert a.document or a.documents, a.id
 
 
 def test_every_family_marked_available_has_attacks():
@@ -205,6 +205,44 @@ def test_rag_and_multi_turn_families_ship_attacks():
     assert len(by_fam["multi_turn"]) >= 4
     assert FAMILY_BY_ID["rag_poisoning"].status == FAMILY_STATUS_AVAILABLE
     assert FAMILY_BY_ID["multi_turn"].status == FAMILY_STATUS_AVAILABLE
+    for a in by_fam["rag_poisoning"]:
+        assert a.delivery == DELIVERY_DOCUMENT, a.id
+        _, docs = render_attack(a, "RG-TEST")
+        assert docs, a.id
+
+
+def test_load_single_shot_attack_documents_list(tmp_path):
+    path = tmp_path / "rag-multi-doc.yaml"
+    path.write_text(
+        """
+family: rag_poisoning
+attacks:
+  - id: RAG-TMP
+    title: two chunks
+    severity: high
+    detector: contains
+    detector_args: { patterns: ["chunk-b"] }
+    prompt: "What does the doc say?"
+    documents:
+      - "chunk-a"
+      - "chunk-b"
+"""
+    )
+    got = load_pack_file(path)[0]
+    assert got.delivery == DELIVERY_DOCUMENT
+    _, docs = render_attack(got, "RG-TEST")
+    assert docs == ["chunk-a", "chunk-b"]
+
+
+def test_rag_004_loads_two_document_chunks():
+    attacks = {a.id: a for a in load_builtin_attacks()}
+    rag004 = attacks["RAG-004"]
+    assert rag004.delivery == DELIVERY_DOCUMENT
+    assert rag004.document is None
+    assert len(rag004.documents) == 2
+    _, docs = render_attack(rag004, "RG-TEST")
+    assert len(docs) == 2
+    assert "ACME-HR-LOCKER-992" in docs[1]
 
 
 def test_load_filters_by_family():

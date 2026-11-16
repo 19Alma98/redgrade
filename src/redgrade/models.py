@@ -59,6 +59,7 @@ class Attack(BaseModel):
     detector: str
     delivery: Delivery = DELIVERY_DIRECT
     document: str | None = None
+    documents: tuple[str, ...] = ()
     turns: tuple[AttackTurn, ...] = ()
     detect_on: DetectOn = DETECT_ON_LAST
     detector_args: DetectorArgs = Field(default_factory=dict)

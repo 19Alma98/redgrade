@@ -88,8 +88,16 @@ class PackLoader:
                         }
                     )
                 else:
-                    delivery = DELIVERY_DOCUMENT if raw.get("document") else DELIVERY_DIRECT
-                    document = raw.get("document")
+                    docs: list[str] = []
+                    if raw.get("document") is not None:
+                        docs.append(str(raw["document"]))
+                    extra = raw.get("documents") or []
+                    if extra and not isinstance(extra, list):
+                        raise PackError(f"{origin}: {raw.get('id')}: documents must be a list")
+                    docs.extend(str(x) for x in extra)
+                    delivery = DELIVERY_DOCUMENT if docs else DELIVERY_DIRECT
+                    document = str(raw["document"]) if raw.get("document") is not None else None
+                    extra_docs = tuple(str(x) for x in extra)
                     attack = Attack.model_validate(
                         {
                             "id": str(raw["id"]),
@@ -100,7 +108,8 @@ class PackLoader:
                             "prompt": str(raw["prompt"]),
                             "detector": str(raw["detector"]),
                             "delivery": delivery,
-                            "document": None if document is None else str(document),
+                            "document": document,
+                            "documents": extra_docs,
                             "detector_args": detector_args,
                             "requires_secrets": bool(raw.get("requires_secrets", False)),
                             "description": str(raw.get("description", "")),

@@ -45,5 +45,8 @@ def render_attack(attack: Attack, canary: str) -> tuple[str, list[str]]:
     if attack.turns:
         raise ValueError(f"attack {attack.id} is multi-turn; use render_turns")
     prompt = render(attack.prompt, canary)
-    documents = [render(attack.document, canary)] if attack.document else []
+    documents: list[str] = []
+    if attack.document:
+        documents.append(render(attack.document, canary))
+    documents.extend(render(d, canary) for d in attack.documents)
     return prompt, documents
