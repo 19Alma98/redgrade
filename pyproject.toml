@@ -18,7 +18,12 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Security",
 ]
-dependencies = ["pyyaml>=6.0", "pydantic>=2", "httpx2"]
+dependencies = [
+    "pyyaml>=6.0",
+    "pydantic>=2",
+    "httpx2",
+    "litellm>=1.109.1",
+]
 
 [project.optional-dependencies]
 opengrade = ["opengrade-ai>=0.1"]
