@@ -29,8 +29,9 @@ uv run redgrade run -c examples/redgrade.hardened.yaml       # exit code 0
 
 | | vulnerable app | hardened app |
 |---|---|---|
-| Overall attack success rate | 100% | 12% |
+| Overall ASR | 91% | 9% |
 | Indirect prompt injection | 100% | 0% |
+| RAG poisoning | 60% | 0% |
 | Leaks (prompt, secrets, PII) | 100% | 0% |
 | Gate | **FAILED** | passed |
 
