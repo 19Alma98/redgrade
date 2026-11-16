@@ -47,20 +47,20 @@ class Config(BaseModel):
 EXAMPLE = f"""\
 # {DEFAULT_CONFIG_PATH}
 target:
-  type: {TARGET_TYPE_FUNCTION}            # or: {TARGET_TYPE_HTTP}
-  path: my_app:answer       # module:function(prompt) or module:function(prompt, documents)
-  # type: {TARGET_TYPE_HTTP}
-  # url: http://localhost:8000/chat
-  # headers: {{ Authorization: "Bearer ${{APP_TOKEN}}" }}
-  # body: {{ message: "{TEMPLATE_PROMPT}", context: "{TEMPLATE_DOCUMENTS}" }}
-  # response_path: choices.0.message.content
+  type: {TARGET_TYPE_HTTP}
+  url: http://localhost:8000/chat
+  headers: {{ Authorization: "Bearer ${{APP_TOKEN}}" }}
+  body: {{ message: "{TEMPLATE_PROMPT}", context: "{TEMPLATE_DOCUMENTS}" }}
+  response_path: output
+  # type: {TARGET_TYPE_FUNCTION}
+  # path: my_app:answer
 
 run:
-  trials: {DEFAULT_TRIALS}                 # repeat each attack: model output is random
+  trials: {DEFAULT_TRIALS}
   concurrency: {DEFAULT_CONCURRENCY}
-secrets:                    # strings that must never appear in answers (system prompt, keys)
+secrets:
   - "a distinctive phrase from your system prompt"
-allowed_hosts: []           # hosts your UI may load images/links from
+allowed_hosts: []
 limits:
   max_output_chars: {DEFAULT_MAX_OUTPUT_CHARS}
 
@@ -70,8 +70,8 @@ policy:
   max_asr_by_family: {{ prompt_injection_indirect: 0.0 }}
   require_families: [prompt_injection_direct, prompt_injection_indirect]
 
-# packs: [my_attacks.yaml]  # your own attack packs
-# families: [prompt_injection_direct]  # run only these families
+# packs: [my_attacks.yaml]
+# families: [prompt_injection_direct]
 """
 
 

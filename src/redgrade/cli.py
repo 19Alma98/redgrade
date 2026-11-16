@@ -15,10 +15,10 @@ from redgrade.constants import DEFAULT_CONFIG_PATH, FAMILY_STATUS_AVAILABLE
 from redgrade.families import FAMILIES
 from redgrade.loader import PackError, load_attacks
 from redgrade.models import AttackResult
-from redgrade.policy import evaluate_policy, passed
 from redgrade.render import render_attack, render_turns
-from redgrade.report import to_json, to_markdown
-from redgrade.runner import new_canary, run_attacks
+from redgrade.report import to_json
+from redgrade.runner import new_canary
+from redgrade.sdk import AttackError, run_pipeline
 from redgrade.targets import TargetError, build_target
 
 
@@ -67,23 +67,32 @@ def _progress(result: AttackResult) -> None:
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     families = args.family or config.families
-    attacks = load_attacks(extra_packs=config.packs, families=families or None)
     if args.trials:
         config.run.trials = args.trials
-    if not attacks:
-        print("no attacks selected", file=sys.stderr)
+    try:
+        target = build_target(config.target)
+        report = run_pipeline(
+            target,
+            policy=config.policy,
+            families=families or None,
+            packs=config.packs or None,
+            run_config=config.run,
+            on_result=_progress,
+        )
+    except AttackError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
-    target = build_target(config.target)
-    print(f"running {len(attacks)} attacks x {config.run.trials} trials", file=sys.stderr)
-    run = run_attacks(attacks, target, config.run, on_result=_progress)
-    checks = evaluate_policy(run, config.policy)
-    report = to_markdown(run, checks, config.policy)
-    print(report)
+
+    n_attacks = len(report.run.results)
+    n_trials = report.run.trials_per_attack
+    print(f"ran {n_attacks} attacks x {n_trials} trials", file=sys.stderr)
+    md = report.to_markdown()
+    print(md)
     if args.report:
-        Path(args.report).write_text(report, encoding="utf-8")
+        Path(args.report).write_text(md, encoding="utf-8")
     if args.json:
-        Path(args.json).write_text(to_json(run, checks, config.policy), encoding="utf-8")
-    return 0 if passed(checks) else 1
+        Path(args.json).write_text(to_json(report.run, report.checks, report.policy), encoding="utf-8")
+    return 0 if report.passed else 1
 
 
 def _cmd_export(args: argparse.Namespace) -> int:

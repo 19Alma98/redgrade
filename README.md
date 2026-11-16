@@ -83,6 +83,33 @@ user and assistant messages are passed as `history` (third argument to a functio
 `{{history}}` in an HTTP body). If the target does not accept history, Redgrade prepends formatted
 prior turns to the current prompt.
 
+## Use as a library
+
+Point Redgrade at your app's HTTP chat endpoint and assert the security gate in a normal test. The optional ``packs`` argument is additive (built-ins plus extra pack paths), like the CLI ``--pack`` flag.
+
+    ```python
+    from redgrade import HttpTarget, Policy, attack
+
+    report = attack(
+        target=HttpTarget(
+            url="http://localhost:8000/chat",
+            body={"message": "{{prompt}}", "context": "{{documents}}"},
+            headers={"Authorization": "Bearer ${APP_TOKEN}"},
+            response_path="reply",
+        ),
+        policy=Policy(
+            max_asr=0.10,
+            max_asr_by_family={"prompt_injection_indirect": 0.0},
+            require_families=["prompt_injection_direct", "prompt_injection_indirect"],
+        ),
+        trials=3,
+        secrets=["a distinctive phrase of your system prompt"],
+    )
+    assert report.passed, report.summary()
+    ```
+
+`HttpTarget` is the supported integration for application tests. The CLI still accepts `type: function` for offline demos and Redgrade's own tests.
+
 ## What it covers today
 
 Redgrade covers attacks that arrive from outside the app. Each attack carries its OWASP category,
