@@ -27,7 +27,8 @@ Applications (2026).
 
 - [x] Deterministic L4 mutations on opted-in PI seeds (`mutations: [default]` or an explicit list)
 - [x] PI Maturity Score and highest resisted level in the report
-- [ ] Adaptive / LLM-generated attack variants (PAIR/TAP-style), optional extra—not default CI
+- [x] Adaptive / LLM-generated attack variants via `redgrade deep` (LiteLLM PAIR-lite)—not default CI
+- [ ] TAP / Crescendo-style multi-stage adaptivity beyond PAIR-lite
 - [ ] LLM-judge detector for verdicts a regex cannot give (policy violations, tone)
 - [ ] Per-attack baseline compare: "new successes vs `main`" as a gate, like OpenGrade does for quality
 - [ ] HTML report

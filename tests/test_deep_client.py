@@ -10,9 +10,7 @@ from redgrade.deep.errors import DeepError
 
 
 def _response(content: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
-    )
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
 def test_chat_returns_assistant_content():

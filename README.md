@@ -145,10 +145,20 @@ Safety rules of the gate: a target that errors out is a **failure**, never a pas
 need `secrets` are **skipped and reported** when none are configured; attacks that work only some
 of the time are marked **flaky**.
 
+## Deep mode
+
+For adaptive, LLM-driven attack variants (PAIR-lite via LiteLLM), use the separate **`redgrade deep`**
+subcommand and the `redgrade.deep` SDK—not `run` or `attack()`. Deep mode calls your configured
+provider and is meant for local or staged red-team runs.
+
+**CI should keep using `redgrade run`:** static packs only, no provider calls, reproducible gates.
+See [docs/deep-mode.md](docs/deep-mode.md) for model strings, env keys, and YAML examples.
+
 ## In CI
 
 Copy [examples/github-action-gate.yml](examples/github-action-gate.yml) into your repository.
-The report goes to the job summary and the job fails when the policy fails.
+The report goes to the job summary and the job fails when the policy fails. Wire the workflow to
+`redgrade run`, not `redgrade deep`.
 
 ## With OpenGrade
 

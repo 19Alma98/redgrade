@@ -22,9 +22,7 @@ class LlmTarget:
         self.model = model
         self.api_base = api_base
         self.system = system
-        self._client = LlmClient(
-            model=model, api_base=api_base, timeout=timeout, completion=completion
-        )
+        self._client = LlmClient(model=model, api_base=api_base, timeout=timeout, completion=completion)
 
     def __call__(
         self,

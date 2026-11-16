@@ -29,3 +29,23 @@ policy:
         encoding="utf-8",
     )
     assert main(["deep", "-c", str(cfg)]) == 2
+
+
+def test_deep_not_in_public_all():
+    import redgrade
+
+    assert "deep_attack" not in redgrade.__all__
+    assert "LlmTarget" not in redgrade.__all__
+    assert "OllamaTarget" not in redgrade.__all__
+
+
+def test_attack_path_does_not_import_litellm(monkeypatch):
+    import sys
+
+    # Force-clear if previously imported in-process; then call attack() validation only
+    sys.modules.pop("litellm", None)
+    from redgrade import AttackError, attack
+
+    with pytest.raises(AttackError):
+        attack(object())  # type: ignore[arg-type]
+    assert "litellm" not in sys.modules

@@ -10,9 +10,7 @@ def test_llm_target_maps_prompt_documents_history():
 
     def completion(**kwargs):
         seen["messages"] = kwargs["messages"]
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
-        )
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
 
     target = LlmTarget(
         model="ollama_chat/llama3.2",

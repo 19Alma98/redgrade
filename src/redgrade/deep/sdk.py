@@ -101,8 +101,7 @@ def deep_attack(
     attacker = PairLiteAttacker(chat_fn, max_rounds=max_rounds)
     kind = _target_kind(target)
     goal_runs = [
-        attacker.run_goal(spec, target, secrets=secrets, allowed_hosts=allowed_hosts)
-        for spec in goal_specs
+        attacker.run_goal(spec, target, secrets=secrets, allowed_hosts=allowed_hosts) for spec in goal_specs
     ]
     run = RunResult(
         results=[AttackResult(attack=gr.attack, trials=gr.trials) for gr in goal_runs],
