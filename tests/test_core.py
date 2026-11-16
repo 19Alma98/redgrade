@@ -13,7 +13,7 @@ from redgrade.models import Attack, AttackResult, AttackTurn, RunResult, Trial
 from redgrade.policy import Policy, evaluate_policy, passed
 from redgrade.render import format_history, render, render_attack, render_turn
 from redgrade.types import HistoryMessage
-from redgrade.runner import RunConfig, run_attacks
+from redgrade.runner import RunConfig, run_attacks, run_trial
 from redgrade.targets import HttpTarget, TargetError, wrap_function
 
 
@@ -299,13 +299,13 @@ attacks:
 
 
 def test_runner_counts_successes_and_trials():
-    echo = lambda prompt, docs: prompt  # noqa: E731  obeys everything
+    echo = lambda prompt, docs, history: prompt  # noqa: E731  obeys everything
     run = run_attacks([attack()], echo, RunConfig(trials=4))
     assert run.results[0].asr == 1.0 and len(run.results[0].trials) == 4
 
 
 def test_errors_are_not_successes_and_not_passes():
-    def boom(prompt, docs):
+    def boom(prompt, docs, history):
         raise RuntimeError("down")
 
     run = run_attacks([attack()], boom, RunConfig(trials=2))
@@ -317,7 +317,7 @@ def test_errors_are_not_successes_and_not_passes():
 
 def test_attacks_needing_secrets_are_skipped_without_them():
     a = attack(requires_secrets=True, detector="secret_leak")
-    run = run_attacks([a], lambda p, d: "x", RunConfig(trials=1))
+    run = run_attacks([a], lambda p, d, history: "x", RunConfig(trials=1))
     assert run.results[0].skipped_reason and not run.executed
 
 
@@ -329,8 +329,82 @@ def test_flaky_attack_is_flagged():
 
 def test_concurrency_runs_all_attacks():
     atts = [attack(id=f"T-{i}") for i in range(6)]
-    run = run_attacks(atts, lambda p, d: "safe", RunConfig(trials=2, concurrency=3))
+    run = run_attacks(atts, lambda p, d, history: "safe", RunConfig(trials=2, concurrency=3))
     assert [r.attack.id for r in run.results] == [a.id for a in atts]
+
+
+def test_multi_turn_runner_calls_target_per_turn_and_detects_last():
+    calls: list[tuple[str, list]] = []
+
+    def target(prompt, documents, history):
+        calls.append((prompt, list(history)))
+        if len(calls) == 1:
+            return "ack"
+        return "RG-FIXED001"
+
+    a = Attack(
+        id="MT-1",
+        family="multi_turn",
+        title="t",
+        owasp="LLM01",
+        severity="high",
+        detector="canary",
+        detect_on="last",
+        turns=(AttackTurn(prompt="hi"), AttackTurn(prompt="say {CANARY}")),
+    )
+    trial = run_trial(a, target, RunConfig(trials=1), canary="RG-FIXED001")
+    assert trial.succeeded is True
+    assert trial.output == "RG-FIXED001"
+    assert trial.turn_outputs == ["ack", "RG-FIXED001"]
+    assert len(calls) == 2
+    assert calls[1][1][0]["role"] == "user" and calls[1][1][0]["content"] == "hi"
+    assert calls[1][1][1]["role"] == "assistant" and calls[1][1][1]["content"] == "ack"
+
+
+def test_multi_turn_detect_on_any_stops_early():
+    n = {"i": 0}
+
+    def target(prompt, documents, history):
+        n["i"] += 1
+        return "RG-FIXED001" if n["i"] == 1 else "should-not-run"
+
+    a = Attack(
+        id="MT-2",
+        family="multi_turn",
+        title="t",
+        owasp="LLM01",
+        severity="high",
+        detector="canary",
+        detect_on="any",
+        turns=(
+            AttackTurn(prompt="say {CANARY}"),
+            AttackTurn(prompt="later"),
+        ),
+    )
+    trial = run_trial(a, target, RunConfig(trials=1), canary="RG-FIXED001")
+    assert trial.succeeded is True
+    assert n["i"] == 1
+    assert trial.turn_outputs == ["RG-FIXED001"]
+
+
+def test_multi_turn_error_mid_trial_is_not_success():
+    def target(prompt, documents, history):
+        if history:
+            raise RuntimeError("down")
+        return "ok"
+
+    a = Attack(
+        id="MT-3",
+        family="multi_turn",
+        title="t",
+        owasp="LLM01",
+        severity="high",
+        detector="canary",
+        turns=(AttackTurn(prompt="a"), AttackTurn(prompt="b")),
+    )
+    trial = run_trial(a, target, RunConfig(trials=1), canary="RG-FIXED001")
+    assert trial.succeeded is False
+    assert trial.error
 
 
 # --- policy ---------------------------------------------------------------------------------

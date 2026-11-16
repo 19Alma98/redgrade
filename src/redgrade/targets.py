@@ -1,6 +1,6 @@
 """Targets: the thing under attack.
 
-A target is a callable ``(prompt, documents) -> str``. Two adapters ship with Redgrade:
+A target is a callable ``(prompt, documents, history) -> str``. Two adapters ship with Redgrade:
 
 * ``module:function`` -- a Python function. It may take ``(prompt)`` or ``(prompt, documents)``.
 * ``http`` -- any endpoint that takes JSON and returns JSON.

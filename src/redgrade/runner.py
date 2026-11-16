@@ -12,11 +12,13 @@ from redgrade.constants import (
     DEFAULT_CONCURRENCY,
     DEFAULT_MAX_OUTPUT_CHARS,
     DEFAULT_TRIALS,
+    DETECT_ON_ANY,
 )
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.models import Attack, AttackResult, RunResult, Trial
-from redgrade.render import render_attack
+from redgrade.render import render_attack, render_turn
 from redgrade.targets import Target
+from redgrade.types import HistoryMessage
 
 
 class RunConfig(BaseModel):
@@ -49,29 +51,88 @@ class AttackRunner:
         canary: str | None = None,
     ) -> Trial:
         canary = canary or new_canary()
-        prompt, documents = render_attack(attack, canary)
+        if not attack.turns:
+            prompt, documents = render_attack(attack, canary)
+            start = time.perf_counter()
+            try:
+                output = target(prompt, documents, [])
+            except Exception as exc:  # the target is user code; any failure is a result, not a crash
+                return Trial(
+                    succeeded=False,
+                    error=f"{type(exc).__name__}: {exc}",
+                    latency_s=time.perf_counter() - start,
+                    canary=canary,
+                )
+            latency = time.perf_counter() - start
+            return self._trial_from_output(
+                attack, config, canary, output, "\n".join([prompt, *documents]), latency
+            )
+
         start = time.perf_counter()
+        history: list[HistoryMessage] = []
+        turn_outputs: list[str] = []
+        all_inputs: list[str] = []
         try:
-            output = target(prompt, documents)
-        except Exception as exc:  # the target is user code; any failure is a result, not a crash
+            for turn in attack.turns:
+                prompt, documents = render_turn(turn, canary)
+                all_inputs.extend([prompt, *documents])
+                output = target(prompt, documents, history)
+                turn_outputs.append(output)
+                history.append({"role": "user", "content": prompt})
+                history.append({"role": "assistant", "content": output})
+                if attack.detect_on == DETECT_ON_ANY:
+                    ctx = self._detector_context(
+                        attack, config, canary, output, "\n".join(all_inputs)
+                    )
+                    succeeded, _ = get_detector(attack.detector)(ctx)
+                    if succeeded:
+                        return Trial(
+                            succeeded=True,
+                            output=output,
+                            turn_outputs=turn_outputs,
+                            latency_s=time.perf_counter() - start,
+                            canary=canary,
+                        )
+        except Exception as exc:
             return Trial(
                 succeeded=False,
                 error=f"{type(exc).__name__}: {exc}",
+                turn_outputs=turn_outputs,
                 latency_s=time.perf_counter() - start,
                 canary=canary,
             )
+        output = turn_outputs[-1]
         latency = time.perf_counter() - start
+        trial = self._trial_from_output(
+            attack, config, canary, output, "\n".join(all_inputs), latency
+        )
+        return trial.model_copy(update={"turn_outputs": turn_outputs})
+
+    def _detector_context(
+        self, attack: Attack, config: RunConfig, canary: str, output: str, inputs: str
+    ) -> DetectorContext:
         args = {"max_chars": config.max_output_chars, **attack.detector_args}
-        ctx = DetectorContext(
+        return DetectorContext(
             canary=canary,
             output=output,
-            inputs="\n".join([prompt, *documents]),
+            inputs=inputs,
             secrets=config.secrets,
             allowed_hosts=config.allowed_hosts,
             args=args,
         )
+
+    def _trial_from_output(
+        self,
+        attack: Attack,
+        config: RunConfig,
+        canary: str,
+        output: str,
+        inputs: str,
+        latency_s: float,
+    ) -> Trial:
+        ctx = self._detector_context(attack, config, canary, output, inputs)
         succeeded, _why = get_detector(attack.detector)(ctx)
-        return Trial(succeeded=succeeded, output=output, latency_s=latency, canary=canary)
+        return Trial(succeeded=succeeded, output=output, latency_s=latency_s, canary=canary)
 
     def run(
         self,
