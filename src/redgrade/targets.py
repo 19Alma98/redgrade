@@ -23,11 +23,13 @@ from redgrade.constants import (
     TARGET_TYPE_FUNCTION,
     TARGET_TYPE_HTTP,
     TEMPLATE_DOCUMENTS,
+    TEMPLATE_HISTORY,
     TEMPLATE_PROMPT,
 )
-from redgrade.types import JsonValue, YamlMapping
+from redgrade.render import format_history
+from redgrade.types import HistoryMessage, JsonValue, YamlMapping
 
-Target = Callable[[str, list[str]], str]
+Target = Callable[[str, list[str], list[HistoryMessage]], str]
 
 
 class TargetError(Exception):
@@ -68,11 +70,26 @@ def function_target(spec: str) -> Target:
 
 def wrap_function(func: Callable[..., object]) -> Target:
     params = list(inspect.signature(func).parameters.values())
+    names = {p.name for p in params}
     accepts_docs = any(p.kind is p.VAR_POSITIONAL for p in params) or len(params) >= 2
     accepts_docs = accepts_docs or any(p.name == "documents" for p in params)
+    accepts_history = "history" in names or len(params) >= 3
 
-    def call(prompt: str, documents: list[str]) -> str:
-        result = func(prompt, documents) if accepts_docs else func(prompt)
+    def call(
+        prompt: str,
+        documents: list[str],
+        history: list[HistoryMessage] | None = None,
+    ) -> str:
+        history = history or []
+        if accepts_history:
+            if accepts_docs:
+                result = func(prompt, documents, history)
+            else:
+                result = func(prompt, history)
+        else:
+            if history:
+                prompt = format_history(history) + "\n\n" + prompt
+            result = func(prompt, documents) if accepts_docs else func(prompt)
         return result if isinstance(result, str) else str(result)
 
     return call
@@ -85,16 +102,37 @@ def _expand_env(value: str) -> str:
     return _ENV.sub(lambda m: os.environ.get(m.group(1), ""), value)
 
 
-def _fill(node: JsonValue, prompt: str, documents: list[str]) -> JsonValue:
-    """Replace ``{{prompt}}`` and ``{{documents}}`` in a JSON-like template."""
+def _contains_template_history(node: JsonValue) -> bool:
+    if isinstance(node, str):
+        return TEMPLATE_HISTORY in node
+    if isinstance(node, list):
+        return any(_contains_template_history(x) for x in node)
+    if isinstance(node, dict):
+        return any(_contains_template_history(v) for v in node.values())
+    return False
+
+
+def _fill(
+    node: JsonValue,
+    prompt: str,
+    documents: list[str],
+    history: list[HistoryMessage],
+) -> JsonValue:
+    """Replace ``{{prompt}}``, ``{{documents}}``, and ``{{history}}`` in a JSON-like template."""
     if isinstance(node, str):
         if node == TEMPLATE_DOCUMENTS:
             return list(documents)
-        return node.replace(TEMPLATE_PROMPT, prompt).replace(TEMPLATE_DOCUMENTS, "\n\n".join(documents))
+        if node == TEMPLATE_HISTORY:
+            return list(history)
+        return (
+            node.replace(TEMPLATE_PROMPT, prompt)
+            .replace(TEMPLATE_DOCUMENTS, "\n\n".join(documents))
+            .replace(TEMPLATE_HISTORY, format_history(history))
+        )
     if isinstance(node, list):
-        return [_fill(x, prompt, documents) for x in node]
+        return [_fill(x, prompt, documents, history) for x in node]
     if isinstance(node, dict):
-        return {str(k): _fill(v, prompt, documents) for k, v in node.items()}
+        return {str(k): _fill(v, prompt, documents, history) for k, v in node.items()}
     return node
 
 
@@ -128,8 +166,16 @@ class HttpTarget:
         self.headers = {k: _expand_env(v) for k, v in (headers or {}).items()}
         self._client = client or httpx2.Client(timeout=timeout)
 
-    def __call__(self, prompt: str, documents: list[str]) -> str:
-        payload = _fill(self.body, prompt, documents)
+    def __call__(
+        self,
+        prompt: str,
+        documents: list[str],
+        history: list[HistoryMessage] | None = None,
+    ) -> str:
+        history = history or []
+        if history and not _contains_template_history(self.body):
+            prompt = format_history(history) + "\n\n" + prompt
+        payload = _fill(self.body, prompt, documents, history)
         try:
             response = self._client.post(self.url, json=payload, headers=self.headers)
             response.raise_for_status()

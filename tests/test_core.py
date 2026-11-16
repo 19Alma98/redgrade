@@ -369,8 +369,53 @@ def test_policy_rejects_unknown_keys():
 
 
 def test_wrap_function_passes_documents_only_when_accepted():
-    assert wrap_function(lambda p: f"one:{p}")("a", ["d"]) == "one:a"
-    assert wrap_function(lambda p, documents: f"{p}|{documents}")("a", ["d"]) == "a|['d']"
+    assert wrap_function(lambda p: f"one:{p}")("a", ["d"], []) == "one:a"
+    assert wrap_function(lambda p, documents: f"{p}|{documents}")("a", ["d"], []) == "a|['d']"
+
+
+def test_wrap_function_passes_history_when_accepted():
+    def app(prompt, documents, history):
+        return f"{len(history)}:{prompt}"
+
+    call = wrap_function(app)
+    assert call("q", [], [{"role": "user", "content": "u"}, {"role": "assistant", "content": "a"}]) == "2:q"
+
+
+def test_wrap_function_prepends_history_for_two_arg_targets():
+    call = wrap_function(lambda p, d: p)
+    out = call("now", [], [{"role": "user", "content": "earlier"}])
+    assert out.startswith("User: earlier")
+    assert out.endswith("now")
+
+
+def test_http_history_as_json_array_and_prompt_fallback():
+    import json
+
+    seen = {}
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx2.Response(200, json={"output": "ok"})
+
+    client = httpx2.Client(transport=httpx2.MockTransport(handler))
+    hist = [{"role": "user", "content": "u1"}, {"role": "assistant", "content": "a1"}]
+
+    t1 = HttpTarget(
+        "http://app/chat",
+        body={"message": "{{prompt}}", "history": "{{history}}"},
+        client=client,
+    )
+    assert t1("q", [], hist) == "ok"
+    assert seen["body"]["history"] == hist
+
+    t2 = HttpTarget(
+        "http://app/chat",
+        body={"message": "{{prompt}}"},
+        client=client,
+    )
+    assert t2("q", [], hist) == "ok"
+    assert "User: u1" in seen["body"]["message"]
+    assert seen["body"]["message"].endswith("q")
 
 
 def test_http_target_fills_template_and_reads_path():
@@ -391,7 +436,7 @@ def test_http_target_fills_template_and_reads_path():
         headers={"Authorization": "Bearer t"},
         client=client,
     )
-    assert target("q", ["d1", "d2"]) == "hi"
+    assert target("q", ["d1", "d2"], []) == "hi"
     assert seen["body"] == {"message": "q", "docs": ["d1", "d2"]}
     assert seen["auth"] == "Bearer t"
 
@@ -399,7 +444,7 @@ def test_http_target_fills_template_and_reads_path():
 def test_http_target_error_is_wrapped():
     client = httpx2.Client(transport=httpx2.MockTransport(lambda r: httpx2.Response(500)))
     with pytest.raises(TargetError):
-        HttpTarget("http://app", client=client)("q", [])
+        HttpTarget("http://app", client=client)("q", [], [])
 
 
 # --- config / targets factory ---------------------------------------------------------------
