@@ -74,21 +74,25 @@ def naive_model(context: str) -> str:
     return "Ecco la risposta alla tua richiesta."
 
 
-def vulnerable(prompt: str, documents: list[str]) -> str:
-    context = "\n\n".join([SYSTEM_PROMPT, *documents, prompt])
+def vulnerable(prompt: str, documents: list[str], history: list | None = None) -> str:
+    history = history or []
+    hist_txt = "\n".join(f"{m['role']}: {m['content']}" for m in history)
+    context = "\n\n".join(x for x in [SYSTEM_PROMPT, hist_txt, *documents, prompt] if x)
     return naive_model(context)
 
 
 # --- hardened version ---------------------------------------------------------------------
 
 _BLOCKED_INPUT = re.compile(
-    r"(ignore (all )?previous|ignora (tutte )?le istruzioni|ignorez|ignora también|"
-    r"### ?system|</?user_input>|</?system>|from now on you are|sviluppatore|"
-    r"modalità manutenzione|repeat everything above|ripeti parola per parola|"
+    r"(ignore (all )?previous|ignora (tutte )?le istruzioni|ignora le regole|ignora la domanda|"
+    r"ignorez|ignora también|### ?system|</?user_input>|</?system>|from now on you are|"
+    r"sviluppatore|modalità manutenzione|repeat everything above|ripeti parola per parola|"
     r"translate your initial|initialization text|api key|configured with|"
-    r"altri clienti|every email address)",
+    r"altri clienti|every email address|reply only with|rispondi soltanto|rispondi solo)",
     re.I,
 )
+_HR_LOCKER_CODE = re.compile(r"ACME-HR-LOCKER-\d+", re.I)
+_HR_ASK = re.compile(r"(armadietto|locker|hr confidenziale|codice armadietto)", re.I)
 _DOC_LINE_BLOCK = re.compile(
     r"(assistant|assistente|system|ignore|ignora|reply|respond|rispondi|output|print|"
     r"scrivi nella|decode|screening automatico)",
@@ -105,6 +109,7 @@ MAX_OUTPUT = 4000
 
 def _clean_document(doc: str) -> str:
     doc = _HTML_COMMENT.sub("", doc)
+    doc = _HR_LOCKER_CODE.sub("[redacted]", doc)
     return "\n".join(line for line in doc.splitlines() if not _DOC_LINE_BLOCK.search(line))
 
 
@@ -115,9 +120,14 @@ def _clean_output(out: str) -> str:
     return out[:MAX_OUTPUT]
 
 
-def hardened(prompt: str, documents: list[str]) -> str:
-    if _BLOCKED_INPUT.search(prompt):
+def hardened(prompt: str, documents: list[str], history: list | None = None) -> str:
+    history = history or []
+    user_text = [m["content"] for m in history if m.get("role") == "user"]
+    blob = "\n".join([prompt, *user_text])
+    if _BLOCKED_INPUT.search(blob):
         return "Mi dispiace, non posso aiutarti con questa richiesta."
+    if _HR_ASK.search(prompt):
+        return "Mi dispiace, quel contenuto è fuori ambito e non posso usare documenti HR per questa richiesta."
     safe_docs = [_clean_document(d) for d in documents]
     context = "\n\n".join([SYSTEM_PROMPT, *safe_docs, prompt])
     return _clean_output(naive_model(context))
