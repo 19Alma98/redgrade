@@ -131,9 +131,9 @@ and the report shows a coverage matrix so planned families never look "tested".
 | RAG and vector poisoning | LLM08 | 5 | shipped |
 | Multi-turn escalation | LLM01 | 11 | shipped |
 | Task utility / over-refusal | utility | 7 | shipped |
+| Agent goal hijack and tool misuse | LLM06, ASI01 | 8 | shipped |
+| MCP: tool poisoning, rug pull, shadowing, confused deputy | LLM06 | 6 | shipped |
 | More output handling (XSS, SQL/shell in output) | LLM05 | | later |
-| Agent goal hijack and tool misuse | LLM06, ASI01 | | 0.3 |
-| MCP: tool poisoning, rug pull, shadowing, confused deputy | LLM06 | | 0.3 |
 | Jailbreak and harmful content | LLM01 | | 0.4 |
 
 Write your own attacks as YAML: [docs/writing-attacks.md](docs/writing-attacks.md).
@@ -147,14 +147,17 @@ Detectors are deterministic in CI, so the same output always gives the same verd
 - **Secrets**: you list strings that must never appear (parts of the system prompt, keys).
 - **PII, markdown/HTML exfiltration, output length**: regex and URL checks.
 - **Contains / not_contains**: substring checks for grounded answers or missing refusals (`detector_args.patterns`).
+- **Tool trajectory** (`tool_called`, `forbidden_tool`, `tool_args_contains`): scores unauthorized or
+  poisoned tool use when the target returns `tools_called` (HTTP `tools_path`, or a function that
+  returns `TargetObservation`).
 
 **ASR vs utility:** attack success rate (ASR) is lower-is-better and excludes the `task_utility`
 family. Utility probes are benign questions; a high utility rate means the app still answers
 normal requests. An app that refuses everything can show ASR 0% and still fail `min_utility`.
 
 Safety rules of the gate: a target that errors out is a **failure**, never a pass; attacks that
-need `secrets` are **skipped and reported** when none are configured; attacks that work only some
-of the time are marked **flaky**.
+need `secrets` or a tools observation surface are **skipped and reported** when missing; attacks
+that work only some of the time are marked **flaky**.
 
 ## Deep mode
 

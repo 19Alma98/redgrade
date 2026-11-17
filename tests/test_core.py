@@ -628,7 +628,7 @@ def test_http_history_as_json_array_and_prompt_fallback():
         body={"message": "{{prompt}}", "history": "{{history}}"},
         client=client,
     )
-    assert t1("q", [], hist) == "ok"
+    assert t1("q", [], hist).output == "ok"
     assert seen["body"]["history"] == hist
 
     t2 = HttpTarget(
@@ -636,7 +636,7 @@ def test_http_history_as_json_array_and_prompt_fallback():
         body={"message": "{{prompt}}"},
         client=client,
     )
-    assert t2("q", [], hist) == "ok"
+    assert t2("q", [], hist).output == "ok"
     assert "User: u1" in seen["body"]["message"]
     assert seen["body"]["message"].endswith("q")
 
@@ -659,7 +659,9 @@ def test_http_target_fills_template_and_reads_path():
         headers={"Authorization": "Bearer t"},
         client=client,
     )
-    assert target("q", ["d1", "d2"], []) == "hi"
+    obs = target("q", ["d1", "d2"], [])
+    assert obs.output == "hi"
+    assert obs.tools_called == ()
     assert seen["body"] == {"message": "q", "docs": ["d1", "d2"]}
     assert seen["auth"] == "Bearer t"
 

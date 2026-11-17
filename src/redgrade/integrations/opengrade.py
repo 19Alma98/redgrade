@@ -44,7 +44,7 @@ from redgrade.constants import (
     OPENGRADE_SKIPPED_LABEL,
 )
 from redgrade.detectors import DetectorContext, get_detector
-from redgrade.targets import wrap_function
+from redgrade.targets import normalize_observation, wrap_function
 from redgrade.types import DetectorArgs, HistoryMessage, OpenGradeRow, OpenGradeSample
 
 
@@ -113,7 +113,8 @@ def attack_task(
                 docs_raw = turn.get("documents") or []
                 documents = [str(d) for d in docs_raw] if isinstance(docs_raw, list) else []
                 all_inputs.extend([prompt, *documents])
-                last_output = call(prompt, documents, history)
+                obs = normalize_observation(call(prompt, documents, history))
+                last_output = obs.output
                 history.append({"role": "user", "content": prompt})
                 history.append({"role": "assistant", "content": last_output})
                 if detect_on == DETECT_ON_ANY:
@@ -123,6 +124,7 @@ def attack_task(
                         inputs="\n".join(all_inputs),
                         secrets=secret_list,
                         allowed_hosts=hosts,
+                        tools_called=list(obs.tools_called),
                         args=_detector_args(meta, max_output_chars),
                     )
                     succeeded, _ = get_detector(detector_name)(ctx)
@@ -132,7 +134,7 @@ def attack_task(
 
         documents_raw = meta.get("documents") or []
         documents = [str(d) for d in documents_raw] if isinstance(documents_raw, list) else []
-        return call(str(item.input), documents, [])
+        return normalize_observation(call(str(item.input), documents, [])).output
 
     return task
 

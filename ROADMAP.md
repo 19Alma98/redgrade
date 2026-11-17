@@ -21,8 +21,9 @@ Applications (2026).
 | 0.2 | Deep-only `llm_judge` detector | LLM01 | shipped |
 | later | More output handling: XSS payloads, SQL and shell injection through model output | LLM05 | planned |
 | later | Index / retrieval hooks for custom vector stores | LLM08 | planned |
-| 0.3 | Agents: goal hijack, unauthorized tool use, manipulated parameters, SSRF/path traversal via tools, memory poisoning | LLM06, ASI01 | planned |
-| 0.3 | MCP: tool poisoning, rug pull, cross-server shadowing, confused deputy, poisoned tool outputs | LLM06 | planned |
+| 0.3 | Agents: goal hijack, unauthorized tool use, manipulated parameters, SSRF/path traversal via tools | LLM06, ASI01 | shipped (8 attacks) |
+| 0.3 | MCP: tool poisoning, rug pull, cross-server shadowing, confused deputy, poisoned tool outputs | LLM06 | shipped (6 attacks) |
+| 0.3 | Target observation: `tools_called` / HTTP `tools_path` / `{{tools}}` + tool detectors | LLM06 | shipped |
 | 0.4 | Jailbreak and harmful content (optional pack, model-dependent) | LLM01 | planned |
 
 ## Cross-cutting

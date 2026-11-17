@@ -14,7 +14,7 @@ from redgrade.constants import (
     MutateScope,
     Severity,
 )
-from redgrade.types import DetectorArgs
+from redgrade.types import DetectorArgs, JsonValue
 
 __all__ = [
     "SEVERITIES",
@@ -22,8 +22,29 @@ __all__ = [
     "AttackResult",
     "AttackTurn",
     "RunResult",
+    "TargetObservation",
+    "ToolCall",
     "Trial",
 ]
+
+
+class ToolCall(BaseModel):
+    """One tool invocation observed from the app under test."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    arguments: dict[str, JsonValue] = Field(default_factory=dict)
+    id: str = ""
+
+
+class TargetObservation(BaseModel):
+    """Normalized target result: text reply plus optional tool trajectory."""
+
+    model_config = ConfigDict(frozen=True)
+
+    output: str
+    tools_called: tuple[ToolCall, ...] = ()
 
 
 class AttackTurn(BaseModel):
@@ -66,6 +87,8 @@ class Attack(BaseModel):
     detect_on: DetectOn = DETECT_ON_LAST
     detector_args: DetectorArgs = Field(default_factory=dict)
     requires_secrets: bool = False
+    requires_tools: bool = False
+    tools: tuple[JsonValue, ...] = ()
     level: int | None = None
     technique: str = ""
     mutations: tuple[str, ...] = ()
@@ -97,6 +120,7 @@ class Trial(BaseModel):
 
     succeeded: bool  # True = the attack worked (bad)
     output: str = ""
+    tools_called: list[ToolCall] = Field(default_factory=list)
     turn_outputs: list[str] = Field(default_factory=list)
     error: str | None = None
     latency_s: float = 0.0

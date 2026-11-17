@@ -3,9 +3,10 @@
 import base64
 import codecs
 import re
+from typing import cast
 
 from redgrade.models import Attack, AttackTurn
-from redgrade.types import HistoryMessage
+from redgrade.types import HistoryMessage, JsonValue
 
 _ENC = re.compile(r"\{(b64|rot13):(.+?)\}", re.DOTALL)
 
@@ -20,6 +21,21 @@ def _encode(match: re.Match[str]) -> str:
 def render(template: str, canary: str) -> str:
     """Substitute the canary, then apply encodings."""
     return _ENC.sub(_encode, template.replace("{CANARY}", canary))
+
+
+def render_json(node: JsonValue, canary: str) -> JsonValue:
+    """Recursively substitute canary / encodings in a JSON-like tools catalog."""
+    if isinstance(node, str):
+        return render(node, canary)
+    if isinstance(node, list):
+        return [render_json(x, canary) for x in node]
+    if isinstance(node, dict):
+        return {str(k): render_json(cast(JsonValue, v), canary) for k, v in node.items()}
+    return node
+
+
+def render_tools(attack: Attack, canary: str) -> list[JsonValue]:
+    return [render_json(t, canary) for t in attack.tools]
 
 
 def format_history(history: list[HistoryMessage]) -> str:

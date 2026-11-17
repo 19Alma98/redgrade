@@ -37,6 +37,9 @@ DETECTOR_OUTPUT_LENGTH: Final = "output_length"
 DETECTOR_CONTAINS: Final = "contains"
 DETECTOR_NOT_CONTAINS: Final = "not_contains"
 DETECTOR_LLM_JUDGE: Final = "llm_judge"
+DETECTOR_TOOL_CALLED: Final = "tool_called"
+DETECTOR_FORBIDDEN_TOOL: Final = "forbidden_tool"
+DETECTOR_TOOL_ARGS_CONTAINS: Final = "tool_args_contains"
 
 # --- families (special aggregation) ---------------------------------------------------------
 
@@ -65,6 +68,8 @@ DEFAULT_HTTP_RESPONSE_PATH: Final = "output"
 TEMPLATE_PROMPT: Final = "{{prompt}}"
 TEMPLATE_DOCUMENTS: Final = "{{documents}}"
 TEMPLATE_HISTORY: Final = "{{history}}"
+TEMPLATE_TOOLS: Final = "{{tools}}"
+SKIP_NO_TOOLS_SURFACE: Final = "no tools observation surface (set tools_path on HTTP targets)"
 
 # --- multi-turn detection -------------------------------------------------------------------
 

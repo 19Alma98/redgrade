@@ -78,7 +78,8 @@ def test_init_writes_a_loadable_config(tmp_path, monkeypatch):
 def test_list_shows_planned_families(capsys):
     assert main(["list"]) == 0
     out = capsys.readouterr().out
-    assert "PI-D-001" in out and "planned v0.3" in out
+    assert "PI-D-001" in out and "planned v0.4" in out
+    assert "agent_goal_hijack" in out and "mcp_attacks" in out
     assert "LEVEL" in out and "TECHNIQUE" in out
 
 

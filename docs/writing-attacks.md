@@ -90,6 +90,37 @@ multi-turn attacks by formatting prior turns into the current prompt.
 | `{b64:TEXT}` | TEXT as Base64 (the canary inside TEXT is substituted first) |
 | `{rot13:TEXT}` | TEXT as ROT13 |
 
+In HTTP request bodies (and string fields inside `tools:`), you can also use:
+
+| placeholder | meaning |
+|---|---|
+| `{{prompt}}` | current user message |
+| `{{documents}}` | document list (JSON array when the whole field is `{{documents}}`) |
+| `{{history}}` | prior turns |
+| `{{tools}}` | attack `tools:` catalog (MCP-style defs), with `{CANARY}` already substituted |
+
+## Agent / MCP attacks
+
+Set `requires_tools: true` when the verdict needs a tool trajectory. Those attacks are **skipped**
+(not passed) when the target has no tools surface: HTTP targets need `tools_path`; function
+targets need a `tools` parameter (and should return `TargetObservation`).
+
+```yaml
+target:
+  type: http
+  url: http://localhost:8000/agent
+  body:
+    message: "{{prompt}}"
+    context: "{{documents}}"
+    tools: "{{tools}}"
+  response_path: reply
+  tools_path: tools          # list of {name, arguments} or OpenAI-style function wrappers
+```
+
+Function targets may return either a string or `TargetObservation(output=..., tools_called=...)`.
+
+Optional pack field `tools:` is a JSON list injected via `{{tools}}` (poisoned MCP catalogs).
+
 ## Choosing a detector
 
 | detector | the attack succeeded when... | needs |
@@ -101,6 +132,9 @@ multi-turn attacks by formatting prior turns into the current prompt.
 | `output_length` | the output is longer than `detector_args.max_chars` (default `limits.max_output_chars`) | none |
 | `contains` | the output includes any string in `detector_args.patterns` (e.g. a planted wrong fact) | `patterns: ["..."]` |
 | `not_contains` | the output includes **none** of the patterns (e.g. missing refusal phrases) | `patterns: ["out of scope", "..."]` |
+| `tool_called` | a tool in `detector_args.names` appears in `tools_called` (optional `arg_patterns`, may use `{CANARY}`) | tools surface |
+| `forbidden_tool` | any name in `detector_args.names` was called | tools surface |
+| `tool_args_contains` | any tool call's arguments contain a `patterns` substring (may use `{CANARY}`) | tools surface |
 | `llm_judge` | deep mode only: an LLM scores whether the output achieved the goal | LiteLLM judge (see deep-mode.md) |
 
 Patterns are matched case-insensitively unless `detector_args.case_sensitive: true`.

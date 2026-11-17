@@ -14,11 +14,12 @@ from redgrade.constants import (
     DEFAULT_TRIALS,
     DETECT_ON_ANY,
     DETECTOR_LLM_JUDGE,
+    SKIP_NO_TOOLS_SURFACE,
 )
 from redgrade.detectors import DetectorContext, get_detector
-from redgrade.models import Attack, AttackResult, RunResult, Trial
-from redgrade.render import render_attack, render_turn
-from redgrade.targets import Target
+from redgrade.models import Attack, AttackResult, RunResult, TargetObservation, ToolCall, Trial
+from redgrade.render import render_attack, render_tools, render_turn
+from redgrade.targets import Target, invoke_target, normalize_observation, target_observes_tools
 from redgrade.types import HistoryMessage
 
 
@@ -52,11 +53,12 @@ class AttackRunner:
         canary: str | None = None,
     ) -> Trial:
         canary = canary or new_canary()
+        tools = render_tools(attack, canary)
         if not attack.turns:
             prompt, documents = render_attack(attack, canary)
             start = time.perf_counter()
             try:
-                output = target(prompt, documents, [])
+                obs = normalize_observation(invoke_target(target, prompt, documents, [], tools))
             except Exception as exc:  # the target is user code; any failure is a result, not a crash
                 return Trial(
                     succeeded=False,
@@ -65,29 +67,34 @@ class AttackRunner:
                     canary=canary,
                 )
             latency = time.perf_counter() - start
-            return self._trial_from_output(
-                attack, config, canary, output, "\n".join([prompt, *documents]), latency
+            return self._trial_from_obs(
+                attack, config, canary, obs, "\n".join([prompt, *documents]), latency
             )
 
         start = time.perf_counter()
         history: list[HistoryMessage] = []
         turn_outputs: list[str] = []
+        last_tools: list[ToolCall] = []
         all_inputs: list[str] = []
         try:
             for turn in attack.turns:
                 prompt, documents = render_turn(turn, canary)
                 all_inputs.extend([prompt, *documents])
-                output = target(prompt, documents, history)
-                turn_outputs.append(output)
+                obs = normalize_observation(invoke_target(target, prompt, documents, history, tools))
+                turn_outputs.append(obs.output)
+                last_tools = list(obs.tools_called)
                 history.append({"role": "user", "content": prompt})
-                history.append({"role": "assistant", "content": output})
+                history.append({"role": "assistant", "content": obs.output})
                 if attack.detect_on == DETECT_ON_ANY:
-                    ctx = self._detector_context(attack, config, canary, output, "\n".join(all_inputs))
+                    ctx = self._detector_context(
+                        attack, config, canary, obs.output, "\n".join(all_inputs), last_tools
+                    )
                     succeeded, _ = get_detector(attack.detector)(ctx)
                     if succeeded:
                         return Trial(
                             succeeded=True,
-                            output=output,
+                            output=obs.output,
+                            tools_called=last_tools,
                             turn_outputs=turn_outputs,
                             latency_s=time.perf_counter() - start,
                             canary=canary,
@@ -97,16 +104,24 @@ class AttackRunner:
                 succeeded=False,
                 error=f"{type(exc).__name__}: {exc}",
                 turn_outputs=turn_outputs,
+                tools_called=last_tools,
                 latency_s=time.perf_counter() - start,
                 canary=canary,
             )
         output = turn_outputs[-1]
         latency = time.perf_counter() - start
-        trial = self._trial_from_output(attack, config, canary, output, "\n".join(all_inputs), latency)
+        obs = TargetObservation(output=output, tools_called=tuple(last_tools))
+        trial = self._trial_from_obs(attack, config, canary, obs, "\n".join(all_inputs), latency)
         return trial.model_copy(update={"turn_outputs": turn_outputs})
 
     def _detector_context(
-        self, attack: Attack, config: RunConfig, canary: str, output: str, inputs: str
+        self,
+        attack: Attack,
+        config: RunConfig,
+        canary: str,
+        output: str,
+        inputs: str,
+        tools_called: list[ToolCall],
     ) -> DetectorContext:
         args = {"max_chars": config.max_output_chars, **attack.detector_args}
         return DetectorContext(
@@ -115,21 +130,29 @@ class AttackRunner:
             inputs=inputs,
             secrets=config.secrets,
             allowed_hosts=config.allowed_hosts,
+            tools_called=tools_called,
             args=args,
         )
 
-    def _trial_from_output(
+    def _trial_from_obs(
         self,
         attack: Attack,
         config: RunConfig,
         canary: str,
-        output: str,
+        obs: TargetObservation,
         inputs: str,
         latency_s: float,
     ) -> Trial:
-        ctx = self._detector_context(attack, config, canary, output, inputs)
+        tools = list(obs.tools_called)
+        ctx = self._detector_context(attack, config, canary, obs.output, inputs, tools)
         succeeded, _why = get_detector(attack.detector)(ctx)
-        return Trial(succeeded=succeeded, output=output, latency_s=latency_s, canary=canary)
+        return Trial(
+            succeeded=succeeded,
+            output=obs.output,
+            tools_called=tools,
+            latency_s=latency_s,
+            canary=canary,
+        )
 
     def run(
         self,
@@ -139,7 +162,8 @@ class AttackRunner:
         on_result: Callable[[AttackResult], None] | None = None,
     ) -> RunResult:
         """Run every attack ``config.trials`` times. Attacks that need secrets are skipped when none
-        are configured, because without them a leak cannot be detected (and a skip is not a pass)."""
+        are configured, because without them a leak cannot be detected (and a skip is not a pass).
+        Attacks that need tool observation are skipped when the target has no tools surface."""
 
         def one(attack: Attack) -> AttackResult:
             if attack.detector == DETECTOR_LLM_JUDGE:
@@ -149,6 +173,8 @@ class AttackRunner:
                 )
             if attack.requires_secrets and not config.secrets:
                 return AttackResult(attack=attack, skipped_reason="no 'secrets' configured")
+            if attack.requires_tools and not target_observes_tools(target):
+                return AttackResult(attack=attack, skipped_reason=SKIP_NO_TOOLS_SURFACE)
             result = AttackResult(attack=attack)
             for _ in range(config.trials):
                 result.trials.append(self.run_trial(attack, target, config))

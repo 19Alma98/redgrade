@@ -82,14 +82,14 @@ FAMILIES: tuple[Family, ...] = (
         id="agent_goal_hijack",
         name="Agent goal hijack and tool misuse",
         owasp="LLM06, ASI01",
-        status=FAMILY_STATUS_PLANNED,
+        status=FAMILY_STATUS_AVAILABLE,
         target_release="0.3",
     ),
     Family(
         id="mcp_attacks",
         name="MCP: tool poisoning, rug pull, shadowing, confused deputy",
         owasp="LLM06",
-        status=FAMILY_STATUS_PLANNED,
+        status=FAMILY_STATUS_AVAILABLE,
         target_release="0.3",
     ),
     Family(

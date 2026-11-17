@@ -14,7 +14,7 @@ from redgrade.detectors import DetectorContext
 from redgrade.models import Trial
 from redgrade.render import format_history
 from redgrade.runner import new_canary
-from redgrade.targets import Target
+from redgrade.targets import Target, invoke_target, normalize_observation
 from redgrade.types import HistoryMessage
 
 CRESCENDO_SYSTEM = (
@@ -85,21 +85,22 @@ class CrescendoAttacker:
             prompt, documents = _substitute_canary(prompt_tpl, doc_tpls, canary)
 
             try:
-                output = target(prompt, documents, history)
+                obs = normalize_observation(invoke_target(target, prompt, documents, history, []))
             except Exception as exc:
                 trials.append(Trial(succeeded=False, error=str(exc), canary=canary))
                 continue
 
             history.append({"role": "user", "content": prompt})
-            history.append({"role": "assistant", "content": output})
+            history.append({"role": "assistant", "content": obs.output})
 
             inputs = "\n".join([prompt, *documents])
             ctx = DetectorContext(
                 canary=canary,
-                output=output,
+                output=obs.output,
                 inputs=inputs,
                 secrets=secrets or [],
                 allowed_hosts=allowed_hosts or [],
+                tools_called=list(obs.tools_called),
                 args={},
             )
             succeeded, _why = score_output(
@@ -108,7 +109,14 @@ class CrescendoAttacker:
                 goal_text=goal.text,
                 judge_chat=self._judge_chat,
             )
-            trials.append(Trial(succeeded=succeeded, output=output, canary=canary))
+            trials.append(
+                Trial(
+                    succeeded=succeeded,
+                    output=obs.output,
+                    tools_called=list(obs.tools_called),
+                    canary=canary,
+                )
+            )
             if succeeded:
                 winning_prompt = prompt_tpl
                 winning_documents = tuple(doc_tpls)

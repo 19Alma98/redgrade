@@ -1,13 +1,13 @@
 """Redgrade: red-team your LLM app in CI."""
 
 from redgrade.loader import load_attacks
-from redgrade.models import Attack, AttackResult, RunResult, Trial
+from redgrade.models import Attack, AttackResult, RunResult, TargetObservation, ToolCall, Trial
 from redgrade.policy import Policy, evaluate_policy
 from redgrade.runner import RunConfig, run_attacks
 from redgrade.sdk import AttackError, AttackReport, attack, check
 from redgrade.targets import HttpTarget
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Attack",
@@ -18,6 +18,8 @@ __all__ = [
     "Policy",
     "RunConfig",
     "RunResult",
+    "TargetObservation",
+    "ToolCall",
     "Trial",
     "attack",
     "check",

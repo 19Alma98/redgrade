@@ -158,8 +158,11 @@ def _cmd_export(args: argparse.Namespace) -> int:
                 "detector": a.detector,
                 "detector_args": a.detector_args,
                 "requires_secrets": a.requires_secrets,
+                "requires_tools": a.requires_tools,
                 "canary": canary,
             }
+            if a.tools:
+                meta["tools"] = list(a.tools)
             if a.turns:
                 rendered = render_turns(a, canary)
                 row = {

@@ -13,7 +13,7 @@ from redgrade.deep.judge import score_output
 from redgrade.detectors import DetectorContext
 from redgrade.models import Trial
 from redgrade.runner import new_canary
-from redgrade.targets import Target
+from redgrade.targets import Target, invoke_target, normalize_observation
 
 TAP_SYSTEM = (
     "You are an adversarial prompt generator using tree-of-attacks expansion. "
@@ -139,7 +139,7 @@ class TapAttacker:
                 canary = new_canary()
                 prompt, documents = _substitute_canary(prompt_tpl, doc_tpls, canary)
                 try:
-                    output = target(prompt, documents, [])
+                    obs = normalize_observation(invoke_target(target, prompt, documents, [], []))
                 except Exception as exc:
                     trial = Trial(succeeded=False, error=str(exc), canary=canary)
                     trials.append(trial)
@@ -149,10 +149,11 @@ class TapAttacker:
                 inputs = "\n".join([prompt, *documents])
                 ctx = DetectorContext(
                     canary=canary,
-                    output=output,
+                    output=obs.output,
                     inputs=inputs,
                     secrets=secrets or [],
                     allowed_hosts=allowed_hosts or [],
+                    tools_called=list(obs.tools_called),
                     args={},
                 )
                 succeeded, _why = score_output(
@@ -161,7 +162,12 @@ class TapAttacker:
                     goal_text=goal.text,
                     judge_chat=self._judge_chat,
                 )
-                trial = Trial(succeeded=succeeded, output=output, canary=canary)
+                trial = Trial(
+                    succeeded=succeeded,
+                    output=obs.output,
+                    tools_called=list(obs.tools_called),
+                    canary=canary,
+                )
                 trials.append(trial)
                 evaluated.append(((prompt_tpl, doc_tpls), trial))
                 if succeeded:

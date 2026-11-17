@@ -43,6 +43,14 @@ class PackLoader:
             extra["mutations"] = tuple(str(x) for x in mut)
         return extra
 
+    def _parse_tools(self, raw: dict[str, object], origin: str, attack_id: str) -> tuple[object, ...]:
+        tools = raw.get("tools")
+        if tools is None:
+            return ()
+        if not isinstance(tools, list):
+            raise PackError(f"{origin}: {attack_id}: tools must be a list")
+        return tuple(tools)
+
     def _finalize(self, attacks: list[Attack]) -> list[Attack]:
         try:
             attacks = MutationExpander().expand(attacks)
@@ -117,6 +125,8 @@ class PackLoader:
                             "document": None,
                             "detector_args": detector_args,
                             "requires_secrets": bool(raw.get("requires_secrets", False)),
+                            "requires_tools": bool(raw.get("requires_tools", False)),
+                            "tools": self._parse_tools(raw, origin, str(raw.get("id", "?"))),
                             "description": str(raw.get("description", "")),
                             **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
@@ -146,6 +156,8 @@ class PackLoader:
                             "documents": extra_docs,
                             "detector_args": detector_args,
                             "requires_secrets": bool(raw.get("requires_secrets", False)),
+                            "requires_tools": bool(raw.get("requires_tools", False)),
+                            "tools": self._parse_tools(raw, origin, str(raw.get("id", "?"))),
                             "description": str(raw.get("description", "")),
                             **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
