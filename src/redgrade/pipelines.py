@@ -4,8 +4,21 @@ from redgrade.constants import (
     DEFAULT_CHECK_PIPELINES,
     PIPELINE_CI_DISCLOSURE,
     PIPELINE_CI_PI,
+    PIPELINE_CI_UTILITY,
     PIPELINE_LAB_ADAPTIVE,
 )
+
+# Re-export for callers / tests that import pipeline ids from this module.
+__all__ = [
+    "DEFAULT_CHECK_PIPELINES",
+    "PIPELINE_CI_DISCLOSURE",
+    "PIPELINE_CI_PI",
+    "PIPELINE_CI_UTILITY",
+    "PIPELINE_LAB_ADAPTIVE",
+    "PipelineSpec",
+    "families_for_pipelines",
+    "resolve_pipelines",
+]
 
 
 class PipelineSpec(BaseModel):
@@ -27,6 +40,10 @@ _REGISTRY: dict[str, PipelineSpec] = {
     PIPELINE_CI_DISCLOSURE: PipelineSpec(
         id=PIPELINE_CI_DISCLOSURE,
         families=("info_disclosure",),
+    ),
+    PIPELINE_CI_UTILITY: PipelineSpec(
+        id=PIPELINE_CI_UTILITY,
+        families=("task_utility",),
     ),
     PIPELINE_LAB_ADAPTIVE: PipelineSpec(id=PIPELINE_LAB_ADAPTIVE, lab=True),
 }

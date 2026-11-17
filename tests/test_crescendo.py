@@ -47,4 +47,3 @@ def test_get_strategy_pair_and_crescendo():
 def test_get_strategy_unknown_raises():
     with pytest.raises(DeepError, match="unknown strategy"):
         get_strategy("nope", lambda m: "{}", max_rounds=1)
-

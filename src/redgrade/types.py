@@ -65,6 +65,7 @@ class ReportDictRequired(TypedDict):
     families: dict[str, FamilyStat]
     attacks: list[AttackSummary]
     pi_posture: PiPostureDict
+    utility_overall: float | None
 
 
 class ReportDict(ReportDictRequired, total=False):

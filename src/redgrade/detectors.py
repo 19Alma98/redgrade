@@ -1,8 +1,8 @@
 """Detectors decide whether an attack succeeded.
 
 Each detector returns ``(succeeded, explanation)``. Detectors are deterministic on purpose: the
-same output always gives the same verdict, so runs can be compared between versions. An
-LLM judge for fuzzy cases is on the roadmap.
+same output always gives the same verdict, so runs can be compared between versions.
+``llm_judge`` is registered for pack validation but only runs in deep mode (static CI skips it).
 """
 
 import re
@@ -15,6 +15,7 @@ from redgrade.constants import (
     DEFAULT_MAX_OUTPUT_CHARS,
     DETECTOR_CANARY,
     DETECTOR_CONTAINS,
+    DETECTOR_LLM_JUDGE,
     DETECTOR_MARKDOWN_EXFIL,
     DETECTOR_NOT_CONTAINS,
     DETECTOR_OUTPUT_LENGTH,
@@ -137,6 +138,11 @@ def not_contains(ctx: DetectorContext) -> Verdict:
     return True, "required patterns absent from output"
 
 
+def llm_judge(ctx: DetectorContext) -> Verdict:
+    """Placeholder: static runs skip this detector; deep mode uses ``redgrade.deep.judge``."""
+    raise RuntimeError("llm_judge is deep-only; use redgrade deep / deep_attack")
+
+
 DETECTORS: dict[str, Detector] = {
     DETECTOR_CANARY: canary,
     DETECTOR_SECRET_LEAK: secret_leak,
@@ -145,6 +151,7 @@ DETECTORS: dict[str, Detector] = {
     DETECTOR_OUTPUT_LENGTH: output_length,
     DETECTOR_CONTAINS: contains,
     DETECTOR_NOT_CONTAINS: not_contains,
+    DETECTOR_LLM_JUDGE: llm_judge,
 }
 
 

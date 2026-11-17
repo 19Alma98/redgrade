@@ -17,6 +17,11 @@ class DeepAttackerConfig(BaseModel):
     api_base: str | None = None
 
 
+class DeepJudgeConfig(BaseModel):
+    model: str | None = None
+    api_base: str | None = None
+
+
 class DeepConfig(BaseModel):
     target: YamlMapping
     attacker: DeepAttackerConfig
@@ -27,6 +32,8 @@ class DeepConfig(BaseModel):
     secrets: list[str] = Field(default_factory=list)
     allowed_hosts: list[str] = Field(default_factory=list)
     packs: list[str] = Field(default_factory=list)
+    detector: str = "canary"
+    judge: DeepJudgeConfig = Field(default_factory=DeepJudgeConfig)
 
 
 def build_deep_target(raw: YamlMapping) -> Target:
@@ -89,6 +96,11 @@ class DeepConfigLoader:
         else:
             raise ValueError("'policy' must be a mapping")
         attacker = DeepAttackerConfig.model_validate(attacker_raw)
+        judge_raw = raw.get("judge") or {}
+        if not isinstance(judge_raw, dict):
+            raise ValueError("'judge' must be a mapping")
+        judge = DeepJudgeConfig.model_validate(judge_raw)
+        detector = str(raw.get("detector") or "canary")
         return DeepConfig(
             target=dict(target_block),
             attacker=attacker,
@@ -99,6 +111,8 @@ class DeepConfigLoader:
             secrets=[str(s) for s in secrets_raw],
             allowed_hosts=[str(h) for h in hosts_raw],
             packs=[str(p) for p in packs_raw],
+            detector=detector,
+            judge=judge,
         )
 
 

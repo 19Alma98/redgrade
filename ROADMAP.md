@@ -17,6 +17,8 @@ Applications (2026).
 | 0.2 | RAG and vector poisoning, per-document access control bypass | LLM08 | shipped (5 attacks) |
 | 0.2 | Multi-turn attacks (gradual escalation) | LLM01 | shipped (5 attacks) |
 | 0.2 | PI maturity: L1–L5 levels, deterministic L4 mutations, PI score in report | LLM01 | shipped |
+| 0.2 | Task utility / over-refusal probes + `min_utility` gate | utility | shipped |
+| 0.2 | Deep-only `llm_judge` detector | LLM01 | shipped |
 | later | More output handling: HTML/XSS, SQL and shell injection through model output | LLM05 | planned |
 | later | Index / retrieval hooks for custom vector stores | LLM08 | planned |
 | 0.3 | Agents: goal hijack, unauthorized tool use, manipulated parameters, SSRF/path traversal via tools, memory poisoning | LLM06, ASI01 | planned |
@@ -29,7 +31,7 @@ Applications (2026).
 - [x] PI Maturity Score and highest resisted level in the report
 - [x] Adaptive / LLM-generated attack variants via `redgrade deep` (LiteLLM PAIR-lite)—not default CI
 - [ ] TAP / Crescendo-style multi-stage adaptivity beyond PAIR-lite
-- [ ] LLM-judge detector for verdicts a regex cannot give (policy violations, tone)
+- [x] LLM-judge detector for verdicts a regex cannot give (deep-only; CI stays deterministic)
 - [ ] Per-attack baseline compare: "new successes vs `main`" as a gate, like OpenGrade does for quality
 - [ ] HTML report
 - [ ] Verify the OpenGrade adapter end to end against a running OpenGrade server

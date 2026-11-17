@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from redgrade.constants import PIPELINE_CI_UTILITY
 from redgrade.deep.meta import DeepMeta
 from redgrade.loader import load_attacks
 from redgrade.models import AttackResult, RunResult
@@ -16,6 +17,7 @@ from redgrade.runner import RunConfig, run_attacks
 from redgrade.scoring import PiScorer
 from redgrade.targets import HttpTarget, Target
 from redgrade.types import ReportDict
+from redgrade.utility import attack_results, utility_rate
 
 
 class AttackError(Exception):
@@ -32,6 +34,7 @@ class AttackReport(BaseModel):
     pi_score: int | None = None
     highest_resisted_level: int | None = None
     asr_overall: float | None = None
+    utility_overall: float | None = None
     deep_meta: DeepMeta | None = None
     mode: Literal["ci", "deep"] | None = None
     pipelines_run: list[str] = Field(default_factory=list)
@@ -41,14 +44,19 @@ class AttackReport(BaseModel):
             f"Redgrade: {'PASSED' if self.passed else 'FAILED'}",
             f"Overall ASR: {'n/a' if self.asr_overall is None else f'{self.asr_overall * 100:.0f}%'}",
         ]
+        if self.utility_overall is not None:
+            lines.append(f"Utility: {self.utility_overall * 100:.0f}%")
         if self.pi_score is not None:
             lines.append(f"PI Maturity Score: {self.pi_score}/100")
         failed = [c for c in self.checks if not c.passed]
         if failed:
             lines.append("Failed checks:")
             for c in failed:
-                lines.append(f"  - {c.name}: value={c.value:.4f} limit={c.limit:.4f}")
-        bad = [r for r in self.run.executed if r.successes > 0]
+                if c.name.startswith("utility.") or c.name == "coverage.task_utility":
+                    lines.append(f"  - {c.name}: value={c.value:.4f} min={c.limit:.4f}")
+                else:
+                    lines.append(f"  - {c.name}: value={c.value:.4f} limit={c.limit:.4f}")
+        bad = [r for r in attack_results(self.run) if r.successes > 0]
         if bad:
             lines.append("Successful attacks:")
             for r in bad[:10]:
@@ -96,10 +104,11 @@ def _deep_posture_lines(meta: DeepMeta) -> list[str]:
 
 
 def _overall_asr(run: RunResult) -> float | None:
-    valid = sum(len(r.valid_trials) for r in run.executed)
+    attacks = attack_results(run)
+    valid = sum(len(r.valid_trials) for r in attacks)
     if not valid:
         return None
-    wins = sum(r.successes for r in run.executed)
+    wins = sum(r.successes for r in attacks)
     return wins / valid
 
 
@@ -119,6 +128,7 @@ def _build_report(
         pi_score=posture.score,
         highest_resisted_level=posture.highest_resisted_level,
         asr_overall=_overall_asr(run),
+        utility_overall=utility_rate(run),
         deep_meta=deep_meta,
     )
 
@@ -223,6 +233,9 @@ def check(
     run_config = RunConfig(**kwargs) if kwargs else RunConfig()
 
     policy = policy or Policy()
+    utility_on = any(s.id == PIPELINE_CI_UTILITY for s in ci_specs)
+    if utility_on and "require_utility" not in policy.model_fields_set:
+        policy = policy.model_copy(update={"require_utility": True})
     report = run_pipeline(
         target,
         policy=policy,

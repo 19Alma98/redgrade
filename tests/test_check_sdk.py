@@ -67,13 +67,17 @@ def test_check_runs_default_pipelines(monkeypatch, tmp_path):
 
 
 def test_check_unknown_pipeline_raises():
-    target = HttpTarget("http://app/chat", client=_client(lambda r: httpx2.Response(200, json={"output": "x"})))
+    target = HttpTarget(
+        "http://app/chat", client=_client(lambda r: httpx2.Response(200, json={"output": "x"}))
+    )
     with pytest.raises(ValueError, match="unknown pipeline"):
         check(target, pipelines=["ci.missing"])
 
 
 def test_check_lab_only_raises():
-    target = HttpTarget("http://app/chat", client=_client(lambda r: httpx2.Response(200, json={"output": "x"})))
+    target = HttpTarget(
+        "http://app/chat", client=_client(lambda r: httpx2.Response(200, json={"output": "x"}))
+    )
     with pytest.raises(AttackError, match="no CI"):
         check(target, pipelines=[PIPELINE_LAB_ADAPTIVE])
 

@@ -107,6 +107,9 @@ def deep_attack(
     attacker_chat: Callable[[list[dict[str, str]]], str] | None = None,
     packs: list[str] | None = None,
     strategies: list[str] | None = None,
+    judge_model: str | None = None,
+    judge_api_base: str | None = None,
+    judge_chat: Callable[[list[dict[str, str]]], str] | None = None,
 ) -> AttackReport:
     if not (goals or seed_attack_ids):
         raise DeepError("deep_attack requires at least one goal or seed_attack_id")
@@ -125,12 +128,21 @@ def deep_attack(
         def chat_fn(messages: list[dict[str, str]]) -> str:
             return client.chat(messages, response_format_json=True)
 
+    judge_fn = judge_chat
+    if judge_fn is None and detector == "llm_judge":
+        j_model = judge_model if judge_model is not None else attacker_model
+        j_base = judge_api_base if judge_api_base is not None else attacker_api_base
+        judge_client = LlmClient(model=j_model, api_base=j_base)
+
+        def judge_fn(messages: list[dict[str, str]]) -> str:
+            return judge_client.chat(messages, response_format_json=True)
+
     strategies = strategies or ["pair"]
     kind = _target_kind(target)
     goal_runs = []
     specs_for_runs: list[GoalSpec] = []
     for strategy_name in strategies:
-        strat = get_strategy(strategy_name, chat_fn, max_rounds=max_rounds)
+        strat = get_strategy(strategy_name, chat_fn, max_rounds=max_rounds, judge_chat=judge_fn)
         for spec in goal_specs:
             gr = strat.run_goal(spec, target, secrets=secrets, allowed_hosts=allowed_hosts)
             gr = replace(
@@ -188,6 +200,9 @@ def check_deep(
     detector: str = "canary",
     attacker_chat: Callable[[list[dict[str, str]]], str] | None = None,
     packs: list[str] | None = None,
+    judge_model: str | None = None,
+    judge_api_base: str | None = None,
+    judge_chat: Callable[[list[dict[str, str]]], str] | None = None,
 ) -> AttackReport:
     if not isinstance(target, HttpTarget):
         raise AttackError("check_deep() requires an HttpTarget (HTTP endpoint of the app under test)")
@@ -225,6 +240,9 @@ def check_deep(
         attacker_chat=attacker_chat,
         packs=packs,
         strategies=strat_list,
+        judge_model=judge_model,
+        judge_api_base=judge_api_base,
+        judge_chat=judge_chat,
     )
     return report.model_copy(
         update={"mode": "deep", "pipelines_run": [PIPELINE_LAB_ADAPTIVE]},

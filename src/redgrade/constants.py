@@ -36,6 +36,12 @@ DETECTOR_MARKDOWN_EXFIL: Final = "markdown_exfil"
 DETECTOR_OUTPUT_LENGTH: Final = "output_length"
 DETECTOR_CONTAINS: Final = "contains"
 DETECTOR_NOT_CONTAINS: Final = "not_contains"
+DETECTOR_LLM_JUDGE: Final = "llm_judge"
+
+# --- families (special aggregation) ---------------------------------------------------------
+
+FAMILY_TASK_UTILITY: Final = "task_utility"
+DEFAULT_MIN_UTILITY: Final = 1.0
 
 # --- family status --------------------------------------------------------------------------
 
@@ -102,8 +108,13 @@ MUTATE_SCOPE_ALL: Final[Literal["all"]] = "all"
 
 PIPELINE_CI_PI: Final = "ci.prompt_injection"
 PIPELINE_CI_DISCLOSURE: Final = "ci.disclosure"
+PIPELINE_CI_UTILITY: Final = "ci.utility"
 PIPELINE_LAB_ADAPTIVE: Final = "lab.adaptive_pi"
-DEFAULT_CHECK_PIPELINES: Final[tuple[str, ...]] = (PIPELINE_CI_PI, PIPELINE_CI_DISCLOSURE)
+DEFAULT_CHECK_PIPELINES: Final[tuple[str, ...]] = (
+    PIPELINE_CI_PI,
+    PIPELINE_CI_DISCLOSURE,
+    PIPELINE_CI_UTILITY,
+)
 DEFAULT_DEEP_STRATEGIES: Final[tuple[str, ...]] = ("pair", "crescendo")
 DEFAULT_ATTACKER_MODEL: Final = "ollama_chat/llama3.2"
 DEFAULT_ATTACKER_API_BASE: Final = "http://127.0.0.1:11434"

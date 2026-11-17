@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from redgrade.constants import (
     FAMILY_STATUS_AVAILABLE,
+    FAMILY_TASK_UTILITY,
     PI_LEVEL_WEIGHTS,
     REPORT_SNIPPET_CHARS,
     SEVERITY_CRITICAL,
@@ -17,6 +18,7 @@ from redgrade.models import AttackResult, RunResult
 from redgrade.policy import Check, Policy, passed
 from redgrade.scoring import PiPosture, PiScorer
 from redgrade.types import AttackSummary, CheckDict, FamilyStat, PiPostureDict, ReportDict
+from redgrade.utility import attack_results, utility_rate
 
 _SEVERITY_ORDER = {
     SEVERITY_CRITICAL: 0,
@@ -38,11 +40,13 @@ class ReportBuilder:
             bucket[2] += r.successes
         stats: dict[str, FamilyStat] = {}
         for family, (attacks, valid, wins) in counts.items():
+            rate = wins / valid if valid else None
             stats[family] = {
                 "attacks": attacks,
                 "valid": valid,
                 "wins": wins,
-                "asr": wins / valid if valid else None,
+                # task_utility: wins = probes that still answered (utility rate, higher better)
+                "asr": rate,
             }
         return stats
 
@@ -109,6 +113,7 @@ class ReportBuilder:
             "families": self.family_stats(run),
             "attacks": attack_rows,
             "pi_posture": self._posture_dict(posture),
+            "utility_overall": utility_rate(run),
         }
 
     def to_json(self, run: RunResult, checks: list[Check], policy: Policy | None = None) -> str:
@@ -117,15 +122,23 @@ class ReportBuilder:
     def to_markdown(self, run: RunResult, checks: list[Check], policy: Policy | None = None) -> str:
         ok = passed(checks)
         lines = [f"# Redgrade report: {'PASSED' if ok else 'FAILED'}", ""]
+        n_attacks = len(attack_results(run))
         lines.append(
-            f"{len(run.executed)} attacks x {run.trials_per_attack} trials. "
-            "ASR = attack success rate (lower is better)."
+            f"{n_attacks} attacks (+ utility probes) x {run.trials_per_attack} trials. "
+            "ASR = attack success rate (lower is better); utility = benign task success (higher is better)."
         )
+        util = utility_rate(run)
+        if util is not None:
+            lines.append(f"Utility: {_pct(util)} (min gate applies when probes ran).")
         lines += ["", "## Gate", "", "| check | value | limit | |", "|---|---|---|---|"]
         for c in checks:
             mark = "ok" if c.passed else "**FAIL**"
             if c.name.startswith("coverage."):
                 lines.append(f"| {c.name} | {int(c.value)} attack(s) ran | >= 1 | {mark} |")
+            elif c.name.startswith("utility."):
+                lines.append(f"| {c.name} | {_pct(c.value)} | >= {_pct(c.limit)} | {mark} |")
+            elif c.name in ("pi.score", "pi.resisted_level"):
+                lines.append(f"| {c.name} | {c.value} | >= {c.limit} | {mark} |")
             else:
                 lines.append(f"| {c.name} | {_pct(c.value)} | <= {_pct(c.limit)} | {mark} |")
 
@@ -137,13 +150,15 @@ class ReportBuilder:
             "",
             "## OWASP coverage",
             "",
-            "| family | OWASP | status | attacks | ASR |",
+            "| family | OWASP | status | attacks | ASR / utility |",
             "|---|---|---|---|---|",
         ]
         for fam in FAMILIES:
             s = stats.get(fam.id)
+            rate_label = "utility" if fam.id == FAMILY_TASK_UTILITY else "ASR"
             if s:
-                lines.append(f"| {fam.name} | {fam.owasp} | tested | {s['attacks']} | {_pct(s['asr'])} |")
+                rate = f"{_pct(s['asr'])} ({rate_label})"
+                lines.append(f"| {fam.name} | {fam.owasp} | tested | {s['attacks']} | {rate} |")
             elif fam.status == FAMILY_STATUS_AVAILABLE:
                 lines.append(f"| {fam.name} | {fam.owasp} | **not run** | 0 | n/a |")
             else:
@@ -183,7 +198,8 @@ class ReportBuilder:
         return "\n".join(lines) + "\n"
 
     def _failing(self, run: RunResult) -> list[AttackResult]:
-        bad = [r for r in run.executed if r.successes > 0]
+        # Successful *attacks* only (utility probe successes are desirable).
+        bad = [r for r in attack_results(run) if r.successes > 0]
         return sorted(bad, key=lambda r: (_SEVERITY_ORDER.get(r.attack.severity, 9), r.attack.id))
 
 

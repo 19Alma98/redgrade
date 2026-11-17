@@ -13,6 +13,7 @@ from redgrade.constants import (
     DEFAULT_MAX_OUTPUT_CHARS,
     DEFAULT_TRIALS,
     DETECT_ON_ANY,
+    DETECTOR_LLM_JUDGE,
 )
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.models import Attack, AttackResult, RunResult, Trial
@@ -141,6 +142,11 @@ class AttackRunner:
         are configured, because without them a leak cannot be detected (and a skip is not a pass)."""
 
         def one(attack: Attack) -> AttackResult:
+            if attack.detector == DETECTOR_LLM_JUDGE:
+                return AttackResult(
+                    attack=attack,
+                    skipped_reason="llm_judge is deep-only (not allowed in static CI runs)",
+                )
             if attack.requires_secrets and not config.secrets:
                 return AttackResult(attack=attack, skipped_reason="no 'secrets' configured")
             result = AttackResult(attack=attack)

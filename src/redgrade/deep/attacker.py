@@ -5,7 +5,8 @@ from dataclasses import dataclass
 
 from redgrade.constants import SEVERITY_HIGH
 from redgrade.deep.errors import DeepError
-from redgrade.detectors import DetectorContext, get_detector
+from redgrade.deep.judge import score_output
+from redgrade.detectors import DetectorContext
 from redgrade.models import Attack, Trial
 from redgrade.runner import new_canary
 from redgrade.targets import Target
@@ -94,9 +95,16 @@ def _synthetic_attack(goal: GoalSpec) -> Attack:
 
 
 class PairLiteAttacker:
-    def __init__(self, chat: Callable[[list[dict[str, str]]], str], *, max_rounds: int = 5) -> None:
+    def __init__(
+        self,
+        chat: Callable[[list[dict[str, str]]], str],
+        *,
+        max_rounds: int = 5,
+        judge_chat: Callable[[list[dict[str, str]]], str] | None = None,
+    ) -> None:
         self._chat = chat
         self._max_rounds = max_rounds
+        self._judge_chat = judge_chat
 
     def run_goal(
         self,
@@ -157,7 +165,12 @@ class PairLiteAttacker:
                 allowed_hosts=allowed_hosts or [],
                 args={},
             )
-            succeeded, _why = get_detector(goal.detector)(ctx)
+            succeeded, _why = score_output(
+                goal.detector,
+                ctx,
+                goal_text=goal.text,
+                judge_chat=self._judge_chat,
+            )
             trials.append(Trial(succeeded=succeeded, output=output, canary=canary))
             if succeeded:
                 winning_prompt = prompt_tpl

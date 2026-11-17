@@ -46,7 +46,8 @@ def test_hardened_demo_passes_and_reports_residual_gaps(capsys, tmp_path):
     assert code == 0
     data = json.loads(out_json.read_text())
     assert data["passed"] is True
-    failed = {a["id"] for a in data["attacks"] if a["asr"]}
+    assert data.get("utility_overall") == 1.0
+    failed = {a["id"] for a in data["attacks"] if a["asr"] and a["family"] != "task_utility"}
     # Residual L2 gap: DE/PT authority strings not in the demo input filter (L4 derived are blocked).
     assert failed == {"PI-D-013"}
     assert "PASSED" in capsys.readouterr().out

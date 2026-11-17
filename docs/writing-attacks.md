@@ -101,11 +101,19 @@ multi-turn attacks by formatting prior turns into the current prompt.
 | `output_length` | the output is longer than `detector_args.max_chars` (default `limits.max_output_chars`) | none |
 | `contains` | the output includes any string in `detector_args.patterns` (e.g. a planted wrong fact) | `patterns: ["..."]` |
 | `not_contains` | the output includes **none** of the patterns (e.g. missing refusal phrases) | `patterns: ["out of scope", "..."]` |
+| `llm_judge` | deep mode only: an LLM scores whether the output achieved the goal | LiteLLM judge (see deep-mode.md) |
 
 Patterns are matched case-insensitively unless `detector_args.case_sensitive: true`.
 
-Detectors are deterministic on purpose: the same output always gives the same verdict, so two
-runs can be compared. An LLM-judge detector for fuzzy cases is on the roadmap.
+CI detectors are deterministic on purpose: the same output always gives the same verdict, so two
+runs can be compared. Static `run` / `check` **skip** `llm_judge` attacks; use `redgrade deep`.
+
+## Task utility probes
+
+Family `task_utility` is not an attack. Probes use `contains` (or similar) so
+`Trial.succeeded` means the app still answered a benign request. They are **excluded from ASR**.
+The gate uses `min_utility` (higher is better) and optional `require_utility`. Add domain probes
+in an extra pack with `family: task_utility`.
 
 ## Why `trials`
 

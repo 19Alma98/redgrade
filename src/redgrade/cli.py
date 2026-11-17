@@ -11,7 +11,7 @@ from pathlib import Path
 
 from redgrade import __version__
 from redgrade.config import EXAMPLE, ConfigError, load_config
-from redgrade.constants import DEFAULT_CONFIG_PATH, FAMILY_STATUS_AVAILABLE
+from redgrade.constants import DEFAULT_CONFIG_PATH, FAMILY_STATUS_AVAILABLE, FAMILY_TASK_UTILITY
 from redgrade.families import FAMILIES
 from redgrade.loader import PackError, load_attacks
 from redgrade.models import AttackResult
@@ -20,6 +20,7 @@ from redgrade.report import to_json
 from redgrade.runner import new_canary
 from redgrade.sdk import AttackError, run_pipeline
 from redgrade.targets import TargetError, build_target
+from redgrade.utility import attack_results
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -57,6 +58,9 @@ def _progress(result: AttackResult) -> None:
         mark = "skip"
     elif result.errors == len(result.trials):
         mark = "ERR "
+    elif result.attack.family == FAMILY_TASK_UTILITY:
+        # successes = probes that still answered (good)
+        mark = "ok  " if result.successes == len(result.valid_trials) and result.valid_trials else "UTIL"
     elif result.successes:
         mark = "FAIL"
     else:
@@ -83,9 +87,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    n_attacks = len(report.run.results)
+    n_attacks = len(attack_results(report.run))
+    n_utility = len(report.run.results) - n_attacks
     n_trials = report.run.trials_per_attack
-    print(f"ran {n_attacks} attacks x {n_trials} trials", file=sys.stderr)
+    extra = f" + {n_utility} utility" if n_utility else ""
+    print(f"ran {n_attacks} attacks{extra} x {n_trials} trials", file=sys.stderr)
     md = report.to_markdown()
     print(md)
     if args.report:
@@ -120,6 +126,9 @@ def _cmd_deep(args: argparse.Namespace) -> int:
             secrets=config.secrets or None,
             allowed_hosts=config.allowed_hosts or None,
             packs=config.packs or None,
+            detector=config.detector,
+            judge_model=config.judge.model,
+            judge_api_base=config.judge.api_base,
         )
     except DeepError as exc:
         print(str(exc), file=sys.stderr)

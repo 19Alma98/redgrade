@@ -4,6 +4,7 @@ from redgrade.pipelines import (
     DEFAULT_CHECK_PIPELINES,
     PIPELINE_CI_DISCLOSURE,
     PIPELINE_CI_PI,
+    PIPELINE_CI_UTILITY,
     PIPELINE_LAB_ADAPTIVE,
     families_for_pipelines,
     resolve_pipelines,
@@ -13,11 +14,13 @@ from redgrade.pipelines import (
 def test_default_check_pipelines_resolve():
     specs = resolve_pipelines(None, None)
     assert [s.id for s in specs] == list(DEFAULT_CHECK_PIPELINES)
+    assert PIPELINE_CI_UTILITY in DEFAULT_CHECK_PIPELINES
     fams = families_for_pipelines(specs)
     assert "prompt_injection_direct" in fams
     assert "prompt_injection_indirect" in fams
     assert "multi_turn" in fams
     assert "info_disclosure" in fams
+    assert "task_utility" in fams
 
 
 def test_disable_removes_pipeline():

@@ -26,12 +26,16 @@ class _PairStrategy(PairLiteAttacker):
 
 
 def get_strategy(
-    name: str, chat: Callable[[list[dict[str, str]]], str], *, max_rounds: int
+    name: str,
+    chat: Callable[[list[dict[str, str]]], str],
+    *,
+    max_rounds: int,
+    judge_chat: Callable[[list[dict[str, str]]], str] | None = None,
 ) -> AdaptiveStrategy:
     if name == "pair":
-        return _PairStrategy(chat, max_rounds=max_rounds)
+        return _PairStrategy(chat, max_rounds=max_rounds, judge_chat=judge_chat)
     if name == "crescendo":
-        return CrescendoAttacker(chat, max_rounds=max_rounds)
+        return CrescendoAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
     if name == "tap":
-        return TapAttacker(chat, max_rounds=max_rounds)
+        return TapAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
     raise DeepError(f"unknown strategy: {name!r}")

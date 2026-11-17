@@ -47,6 +47,12 @@ def test_check_never_calls_litellm_completion(monkeypatch, tmp_path):
 
     monkeypatch.setattr("litellm.completion", boom, raising=False)
 
+    def judge_boom(*_a, **_k):
+        called["n"] += 1
+        raise AssertionError("deep.judge called from check")
+
+    monkeypatch.setattr("redgrade.deep.judge.run_llm_judge", judge_boom, raising=False)
+
     def handler(_request):
         return httpx2.Response(200, json={"output": "safe"})
 

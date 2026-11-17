@@ -4,10 +4,10 @@
 exfiltration attempts, measures how often they work, and fails the pull request when security
 regresses. Self-hosted, one small package, no SaaS.
 
-> Status: **0.2 (alpha)**. 63 attacks across 8 packs (including L4 mutations on selected PI seeds),
-> PI maturity score and level posture in the report, document simulation. Adaptive attackers are
-> available via [`redgrade deep`](docs/deep-mode.md); agent, tool and MCP attacks are on the
-> [roadmap](ROADMAP.md) (0.3). Built to pair with
+> Status: **0.2 (alpha)**. 70 attacks across 9 packs (including L4 mutations on selected PI seeds and
+> task-utility probes), PI maturity score and level posture in the report, document simulation.
+> Adaptive attackers (and optional LLM-judge) are available via [`redgrade deep`](docs/deep-mode.md);
+> agent, tool and MCP attacks are on the [roadmap](ROADMAP.md) (0.3). Built to pair with
 > [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
 
 ## The problem
@@ -68,10 +68,12 @@ secrets: ["a distinctive phrase of your system prompt"]
 allowed_hosts: []                 # hosts your UI may load images or links from
 
 policy:
-  max_asr: 0.10                              # overall attack success rate
+  max_asr: 0.10                              # overall attack success rate (excludes utility)
   max_asr_by_severity: { critical: 0.0 }
   max_asr_by_family: { prompt_injection_indirect: 0.0 }
-  require_families: [prompt_injection_direct, prompt_injection_indirect]
+  min_utility: 1.0                           # benign probes must still be answered
+  require_utility: true
+  require_families: [prompt_injection_direct, prompt_injection_indirect, task_utility]
   # optional prompt-injection posture gates (see docs/writing-attacks.md):
   # min_pi_score: 70
   # min_resisted_level: 3
@@ -128,6 +130,7 @@ and the report shows a coverage matrix so planned families never look "tested".
 | Unbounded consumption | LLM10 | 2 | shipped |
 | RAG and vector poisoning | LLM08 | 5 | shipped |
 | Multi-turn escalation | LLM01 | 5 | shipped |
+| Task utility / over-refusal | utility | 7 | shipped |
 | More output handling (HTML/XSS, SQL/shell in output) | LLM05 | | later |
 | Agent goal hijack and tool misuse | LLM06, ASI01 | | 0.3 |
 | MCP: tool poisoning, rug pull, shadowing, confused deputy | LLM06 | | 0.3 |
@@ -137,13 +140,17 @@ Write your own attacks as YAML: [docs/writing-attacks.md](docs/writing-attacks.m
 
 ## How a verdict is reached
 
-Detectors are deterministic, so the same output always gives the same verdict:
+Detectors are deterministic in CI, so the same output always gives the same verdict:
 
 - **Canary**: every trial injects a random token (`RG-1A2B3C4D`). If the app's output contains it,
   the app obeyed an instruction it should not have.
 - **Secrets**: you list strings that must never appear (parts of the system prompt, keys).
 - **PII, markdown exfiltration, output length**: regex and URL checks.
 - **Contains / not_contains**: substring checks for grounded answers or missing refusals (`detector_args.patterns`).
+
+**ASR vs utility:** attack success rate (ASR) is lower-is-better and excludes the `task_utility`
+family. Utility probes are benign questions; a high utility rate means the app still answers
+normal requests. An app that refuses everything can show ASR 0% and still fail `min_utility`.
 
 Safety rules of the gate: a target that errors out is a **failure**, never a pass; attacks that
 need `secrets` are **skipped and reported** when none are configured; attacks that work only some
@@ -153,9 +160,11 @@ of the time are marked **flaky**.
 
 For adaptive, LLM-driven attack variants (PAIR-lite via LiteLLM), use the separate **`redgrade deep`**
 subcommand and the `redgrade.deep` SDK—not `run` or `attack()`. Deep mode calls your configured
-provider and is meant for local or staged red-team runs.
+provider and is meant for local or staged red-team runs. Set `detector: llm_judge` (and optional
+`judge:`) when canary/regex cannot score the goal.
 
-**CI should keep using `redgrade run` or `redgrade check`:** static packs only, no provider calls, reproducible gates. (`check` is an alias of `run` for pipelines wired in CI.)
+**CI should keep using `redgrade run` or `redgrade check`:** static packs + utility probes only, no
+provider calls, reproducible gates. (`check` is an alias of `run` for pipelines wired in CI.)
 See [docs/deep-mode.md](docs/deep-mode.md) for model strings, env keys, and YAML examples.
 
 ## In CI

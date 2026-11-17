@@ -10,9 +10,7 @@ def test_deep_help():
 
 
 def test_deep_export_wins_flag():
-    args = build_parser().parse_args(
-        ["deep", "-c", "deep.yaml", "--export-wins", "/tmp/wins.yaml"]
-    )
+    args = build_parser().parse_args(["deep", "-c", "deep.yaml", "--export-wins", "/tmp/wins.yaml"])
     assert args.export_wins == "/tmp/wins.yaml"
 
 

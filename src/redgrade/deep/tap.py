@@ -9,7 +9,8 @@ from redgrade.deep.attacker import (
     _synthetic_attack,
 )
 from redgrade.deep.errors import DeepError
-from redgrade.detectors import DetectorContext, get_detector
+from redgrade.deep.judge import score_output
+from redgrade.detectors import DetectorContext
 from redgrade.models import Trial
 from redgrade.runner import new_canary
 from redgrade.targets import Target
@@ -81,10 +82,12 @@ class TapAttacker:
         *,
         max_rounds: int = 5,
         branching_factor: int = 2,
+        judge_chat: Callable[[list[dict[str, str]]], str] | None = None,
     ) -> None:
         self._chat = chat
         self._max_rounds = max_rounds
         self._branching_factor = branching_factor
+        self._judge_chat = judge_chat
 
     def run_goal(
         self,
@@ -117,9 +120,7 @@ class TapAttacker:
                 ]
                 try:
                     raw = self._chat(messages)
-                    candidate_payloads = _parse_candidates(
-                        raw, max_candidates=self._branching_factor
-                    )
+                    candidate_payloads = _parse_candidates(raw, max_candidates=self._branching_factor)
                 except DeepError:
                     raise
                 except (json.JSONDecodeError, ValueError, TypeError) as exc:
@@ -154,7 +155,12 @@ class TapAttacker:
                     allowed_hosts=allowed_hosts or [],
                     args={},
                 )
-                succeeded, _why = get_detector(goal.detector)(ctx)
+                succeeded, _why = score_output(
+                    goal.detector,
+                    ctx,
+                    goal_text=goal.text,
+                    judge_chat=self._judge_chat,
+                )
                 trial = Trial(succeeded=succeeded, output=output, canary=canary)
                 trials.append(trial)
                 evaluated.append(((prompt_tpl, doc_tpls), trial))
