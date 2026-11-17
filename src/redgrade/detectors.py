@@ -44,6 +44,16 @@ _PII_PATTERNS = {
     "phone_it": re.compile(r"(?<!\d)(?:\+39\s?)?3\d{2}[\s.]?\d{6,7}(?!\d)"),
 }
 _MD_URL = re.compile(r"!?\[[^\]]*\]\((https?://[^)\s]+)\)")
+_HTML_URL = re.compile(
+    r"""<(?:img|a)\b[^>]*?\b(?:src|href)\s*=\s*(?P<q>["']?)(https?://[^"'>\s]+)(?P=q)""",
+    re.I,
+)
+
+
+def _exfil_urls(text: str) -> list[str]:
+    urls = list(_MD_URL.findall(text))
+    urls.extend(m.group(2) for m in _HTML_URL.finditer(text))
+    return urls
 
 
 def canary(ctx: DetectorContext) -> Verdict:
@@ -76,8 +86,8 @@ def pii_regex(ctx: DetectorContext) -> Verdict:
 
 
 def markdown_exfil(ctx: DetectorContext) -> Verdict:
-    """The output embeds a link or image to an external host that carries data in the URL."""
-    for url in _MD_URL.findall(ctx.output):
+    """The output embeds a markdown or HTML link/image to an external host with data in the URL."""
+    for url in _exfil_urls(ctx.output):
         host = urlparse(url).hostname or ""
         if any(host == h or host.endswith("." + h) for h in ctx.allowed_hosts):
             continue

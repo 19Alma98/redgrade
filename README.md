@@ -126,12 +126,12 @@ and the report shows a coverage matrix so planned families never look "tested".
 | Direct prompt injection | LLM01 | 28 | shipped |
 | Indirect prompt injection (documents, web pages, CVs) | LLM01 | 14 | shipped |
 | System prompt, secret and PII leakage | LLM02, LLM07 | 7 | shipped |
-| Unsafe output handling (markdown exfiltration) | LLM05 | 2 | shipped |
-| Unbounded consumption | LLM10 | 2 | shipped |
+| Unsafe output handling (markdown/HTML link exfiltration) | LLM05 | 6 | shipped |
+| Unbounded consumption | LLM10 | 5 | shipped |
 | RAG and vector poisoning | LLM08 | 5 | shipped |
-| Multi-turn escalation | LLM01 | 5 | shipped |
+| Multi-turn escalation | LLM01 | 11 | shipped |
 | Task utility / over-refusal | utility | 7 | shipped |
-| More output handling (HTML/XSS, SQL/shell in output) | LLM05 | | later |
+| More output handling (XSS, SQL/shell in output) | LLM05 | | later |
 | Agent goal hijack and tool misuse | LLM06, ASI01 | | 0.3 |
 | MCP: tool poisoning, rug pull, shadowing, confused deputy | LLM06 | | 0.3 |
 | Jailbreak and harmful content | LLM01 | | 0.4 |
@@ -145,7 +145,7 @@ Detectors are deterministic in CI, so the same output always gives the same verd
 - **Canary**: every trial injects a random token (`RG-1A2B3C4D`). If the app's output contains it,
   the app obeyed an instruction it should not have.
 - **Secrets**: you list strings that must never appear (parts of the system prompt, keys).
-- **PII, markdown exfiltration, output length**: regex and URL checks.
+- **PII, markdown/HTML exfiltration, output length**: regex and URL checks.
 - **Contains / not_contains**: substring checks for grounded answers or missing refusals (`detector_args.patterns`).
 
 **ASR vs utility:** attack success rate (ASR) is lower-is-better and excludes the `task_utility`

@@ -12,14 +12,14 @@ Applications (2026).
 | 0.1 | Direct prompt injection (override, fake system, delimiter escape, roleplay, Base64/ROT13, payload splitting, multilingual) | LLM01 | shipped |
 | 0.1 | Indirect prompt injection (visible, HTML comment, CV screening, fake end-of-document, encoded) | LLM01 | shipped |
 | 0.1 | System prompt, secret and PII leakage | LLM02, LLM07 | shipped |
-| 0.1 | Unsafe output handling: markdown image/link exfiltration | LLM05 | shipped (2 attacks) |
-| 0.1 | Unbounded consumption | LLM10 | shipped (2 attacks) |
+| 0.1 | Unsafe output handling: markdown/HTML image/link exfiltration | LLM05 | shipped (6 attacks) |
+| 0.1 | Unbounded consumption | LLM10 | shipped (5 attacks) |
 | 0.2 | RAG and vector poisoning, per-document access control bypass | LLM08 | shipped (5 attacks) |
-| 0.2 | Multi-turn attacks (gradual escalation) | LLM01 | shipped (5 attacks) |
+| 0.2 | Multi-turn attacks (gradual escalation) | LLM01 | shipped (11 attacks) |
 | 0.2 | PI maturity: L1–L5 levels, deterministic L4 mutations, PI score in report | LLM01 | shipped |
 | 0.2 | Task utility / over-refusal probes + `min_utility` gate | utility | shipped |
 | 0.2 | Deep-only `llm_judge` detector | LLM01 | shipped |
-| later | More output handling: HTML/XSS, SQL and shell injection through model output | LLM05 | planned |
+| later | More output handling: XSS payloads, SQL and shell injection through model output | LLM05 | planned |
 | later | Index / retrieval hooks for custom vector stores | LLM08 | planned |
 | 0.3 | Agents: goal hijack, unauthorized tool use, manipulated parameters, SSRF/path traversal via tools, memory poisoning | LLM06, ASI01 | planned |
 | 0.3 | MCP: tool poisoning, rug pull, cross-server shadowing, confused deputy, poisoned tool outputs | LLM06 | planned |
