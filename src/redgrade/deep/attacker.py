@@ -33,6 +33,9 @@ class GoalRun:
     attack: Attack
     trials: list[Trial]
     rounds_used: int
+    strategy: str = "pair"
+    winning_prompt: str | None = None
+    winning_documents: tuple[str, ...] = ()
 
 
 def _strip_json_fences(raw: str) -> str:
@@ -107,6 +110,8 @@ class PairLiteAttacker:
         trials: list[Trial] = []
         payloads: list[tuple[str, list[str]]] = []
         rounds_used = 0
+        winning_prompt: str | None = None
+        winning_documents: tuple[str, ...] = ()
 
         for round_idx in range(1, self._max_rounds + 1):
             rounds_used = round_idx
@@ -155,6 +160,14 @@ class PairLiteAttacker:
             succeeded, _why = get_detector(goal.detector)(ctx)
             trials.append(Trial(succeeded=succeeded, output=output, canary=canary))
             if succeeded:
+                winning_prompt = prompt_tpl
+                winning_documents = tuple(doc_tpls)
                 break
 
-        return GoalRun(attack=attack, trials=trials, rounds_used=rounds_used)
+        return GoalRun(
+            attack=attack,
+            trials=trials,
+            rounds_used=rounds_used,
+            winning_prompt=winning_prompt,
+            winning_documents=winning_documents,
+        )

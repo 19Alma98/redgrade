@@ -9,6 +9,13 @@ def test_deep_help():
     assert ei.value.code == 0
 
 
+def test_deep_export_wins_flag():
+    args = build_parser().parse_args(
+        ["deep", "-c", "deep.yaml", "--export-wins", "/tmp/wins.yaml"]
+    )
+    assert args.export_wins == "/tmp/wins.yaml"
+
+
 def test_deep_missing_goals_exits_2(tmp_path):
     cfg = tmp_path / "deep.yaml"
     cfg.write_text(

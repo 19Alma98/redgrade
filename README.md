@@ -88,28 +88,31 @@ prior turns to the current prompt.
 
 Point Redgrade at your app's HTTP chat endpoint and assert the security gate in a normal test. The optional ``packs`` argument is additive (built-ins plus extra pack paths), like the CLI ``--pack`` flag.
 
-    ```python
-    from redgrade import HttpTarget, Policy, attack
+```python
+from redgrade import HttpTarget, Policy, attack, check, check_deep
 
-    report = attack(
-        target=HttpTarget(
-            url="http://localhost:8000/chat",
-            body={"message": "{{prompt}}", "context": "{{documents}}"},
-            headers={"Authorization": "Bearer ${APP_TOKEN}"},
-            response_path="reply",
-        ),
-        policy=Policy(
-            max_asr=0.10,
-            max_asr_by_family={"prompt_injection_indirect": 0.0},
-            require_families=["prompt_injection_direct", "prompt_injection_indirect"],
-        ),
-        trials=3,
-        secrets=["a distinctive phrase of your system prompt"],
-    )
-    assert report.passed, report.summary()
-    ```
+report = check(
+    HttpTarget(
+        url="http://localhost:8000/chat",
+        body={"message": "{{prompt}}", "context": "{{documents}}"},
+        headers={"Authorization": "Bearer ${APP_TOKEN}"},
+        response_path="reply",
+    ),
+    policy=Policy(
+        max_asr=0.10,
+        max_asr_by_family={"prompt_injection_indirect": 0.0},
+        require_families=["prompt_injection_direct", "prompt_injection_indirect"],
+    ),
+    trials=3,
+    secrets=["a distinctive phrase of your system prompt"],
+)
+assert report.passed, report.summary()
 
-`HttpTarget` is the supported integration for application tests. The CLI still accepts `type: function` for offline demos and Redgrade's own tests.
+# Lab (Ollama attacker):
+# report = check_deep(target)
+```
+
+`check()` runs the default CI pipelines only (no LiteLLM). `attack()` is the full escape hatch with explicit `families` / packs. The CLI command `redgrade check` is an alias of `redgrade run` for CI workflows; it still accepts `type: function` for offline demos, while the SDK `check()` requires an `HttpTarget`.
 
 ## What it covers today
 
@@ -152,14 +155,14 @@ For adaptive, LLM-driven attack variants (PAIR-lite via LiteLLM), use the separa
 subcommand and the `redgrade.deep` SDK—not `run` or `attack()`. Deep mode calls your configured
 provider and is meant for local or staged red-team runs.
 
-**CI should keep using `redgrade run`:** static packs only, no provider calls, reproducible gates.
+**CI should keep using `redgrade run` or `redgrade check`:** static packs only, no provider calls, reproducible gates. (`check` is an alias of `run` for pipelines wired in CI.)
 See [docs/deep-mode.md](docs/deep-mode.md) for model strings, env keys, and YAML examples.
 
 ## In CI
 
 Copy [examples/github-action-gate.yml](examples/github-action-gate.yml) into your repository.
 The report goes to the job summary and the job fails when the policy fails. Wire the workflow to
-`redgrade run`, not `redgrade deep`.
+`redgrade run` or `redgrade check`, not `redgrade deep`.
 
 ## With OpenGrade
 

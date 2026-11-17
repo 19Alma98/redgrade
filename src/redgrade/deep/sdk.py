@@ -1,15 +1,24 @@
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Literal
 
-from redgrade.deep.attacker import GoalSpec, PairLiteAttacker
+from redgrade.constants import (
+    DEFAULT_ATTACKER_API_BASE,
+    DEFAULT_ATTACKER_MODEL,
+    DEFAULT_DEEP_STRATEGIES,
+    PIPELINE_LAB_ADAPTIVE,
+)
+from redgrade.deep.attacker import GoalSpec
 from redgrade.deep.client import LlmClient
 from redgrade.deep.errors import DeepError
 from redgrade.deep.llm_target import LlmTarget
-from redgrade.deep.meta import DeepMeta
+from redgrade.deep.meta import DeepMeta, WinningSeed
+from redgrade.deep.strategies import get_strategy
 from redgrade.loader import load_attacks
 from redgrade.models import Attack, AttackResult, RunResult
+from redgrade.pipelines import families_for_pipelines, resolve_pipelines
 from redgrade.policy import Policy, evaluate_policy
-from redgrade.sdk import AttackReport, _build_report
+from redgrade.sdk import AttackError, AttackReport, _build_report
 from redgrade.targets import HttpTarget, Target
 
 
@@ -64,6 +73,25 @@ def _build_goal_specs(
     return specs
 
 
+def _seed_attack_ids_from_pipelines(
+    pipeline_ids: list[str],
+    *,
+    packs: list[str] | None,
+) -> list[str]:
+    specs = resolve_pipelines(pipeline_ids, None)
+    families = families_for_pipelines(specs)
+    seen: set[str] = set()
+    ids: list[str] = []
+    for attack in load_attacks(extra_packs=packs, families=families):
+        if attack.turns:
+            continue
+        if attack.id in seen:
+            continue
+        seen.add(attack.id)
+        ids.append(attack.id)
+    return ids
+
+
 def deep_attack(
     target: Target,
     *,
@@ -78,6 +106,7 @@ def deep_attack(
     detector: str = "canary",
     attacker_chat: Callable[[list[dict[str, str]]], str] | None = None,
     packs: list[str] | None = None,
+    strategies: list[str] | None = None,
 ) -> AttackReport:
     if not (goals or seed_attack_ids):
         raise DeepError("deep_attack requires at least one goal or seed_attack_id")
@@ -96,24 +125,107 @@ def deep_attack(
         def chat_fn(messages: list[dict[str, str]]) -> str:
             return client.chat(messages, response_format_json=True)
 
-    attacker = PairLiteAttacker(chat_fn, max_rounds=max_rounds)
+    strategies = strategies or ["pair"]
     kind = _target_kind(target)
-    goal_runs = [
-        attacker.run_goal(spec, target, secrets=secrets, allowed_hosts=allowed_hosts) for spec in goal_specs
-    ]
+    goal_runs = []
+    specs_for_runs: list[GoalSpec] = []
+    for strategy_name in strategies:
+        strat = get_strategy(strategy_name, chat_fn, max_rounds=max_rounds)
+        for spec in goal_specs:
+            gr = strat.run_goal(spec, target, secrets=secrets, allowed_hosts=allowed_hosts)
+            gr = replace(
+                gr,
+                attack=gr.attack.model_copy(update={"id": f"{spec.id}~{strategy_name}"}),
+            )
+            goal_runs.append(gr)
+            specs_for_runs.append(spec)
+    winning_seeds: list[WinningSeed] = []
+    for spec, gr in zip(specs_for_runs, goal_runs, strict=True):
+        if _goal_succeeded(gr.trials) and gr.winning_prompt is not None:
+            winning_seeds.append(
+                WinningSeed(
+                    goal_id=f"{spec.id}~{gr.strategy}",
+                    strategy=gr.strategy,
+                    prompt=gr.winning_prompt,
+                    documents=list(gr.winning_documents),
+                    detector=spec.detector,
+                )
+            )
     run = RunResult(
         results=[AttackResult(attack=gr.attack, trials=gr.trials) for gr in goal_runs],
         trials_per_attack=max_rounds,
     )
     checks = evaluate_policy(run, policy)
     goals_succeeded = sum(1 for gr in goal_runs if _goal_succeeded(gr.trials))
+    # goals_total: one entry per strategy×goal run (len(goal_runs)), not unique goals.
     deep_meta = DeepMeta(
         attacker_model=attacker_model,
         attacker_api_base=attacker_api_base,
         max_rounds=max_rounds,
-        goals_total=len(goal_specs),
+        goals_total=len(goal_runs),
         goals_succeeded=goals_succeeded,
         rounds_used_by_goal={gr.attack.id: gr.rounds_used for gr in goal_runs},
         target_kind=kind,
+        strategies=list(strategies),
+        winning_seeds=winning_seeds,
     )
     return _build_report(run, checks, policy, deep_meta=deep_meta)
+
+
+def check_deep(
+    target: HttpTarget,
+    *,
+    attacker_model: str | None = None,
+    attacker_api_base: str | None = None,
+    strategies: list[str] | None = None,
+    max_rounds: int = 5,
+    seed_from: list[str] | None = None,
+    goals: list[str] | None = None,
+    seed_attack_ids: list[str] | None = None,
+    policy: Policy | None = None,
+    secrets: list[str] | None = None,
+    allowed_hosts: list[str] | None = None,
+    detector: str = "canary",
+    attacker_chat: Callable[[list[dict[str, str]]], str] | None = None,
+    packs: list[str] | None = None,
+) -> AttackReport:
+    if not isinstance(target, HttpTarget):
+        raise AttackError("check_deep() requires an HttpTarget (HTTP endpoint of the app under test)")
+
+    model = attacker_model if attacker_model is not None else DEFAULT_ATTACKER_MODEL
+    api_base = attacker_api_base if attacker_api_base is not None else DEFAULT_ATTACKER_API_BASE
+    strat_list = list(strategies) if strategies is not None else list(DEFAULT_DEEP_STRATEGIES)
+
+    merged_seed_ids: list[str] = []
+    seen: set[str] = set()
+    for sid in seed_attack_ids or []:
+        if sid not in seen:
+            seen.add(sid)
+            merged_seed_ids.append(sid)
+    if seed_from:
+        for sid in _seed_attack_ids_from_pipelines(seed_from, packs=packs):
+            if sid not in seen:
+                seen.add(sid)
+                merged_seed_ids.append(sid)
+
+    if not (goals or merged_seed_ids):
+        raise DeepError("check_deep requires at least one goal or seed attack")
+
+    report = deep_attack(
+        target,
+        attacker_model=model,
+        attacker_api_base=api_base,
+        goals=goals,
+        seed_attack_ids=merged_seed_ids or None,
+        max_rounds=max_rounds,
+        policy=policy,
+        secrets=secrets,
+        allowed_hosts=allowed_hosts,
+        detector=detector,
+        attacker_chat=attacker_chat,
+        packs=packs,
+        strategies=strat_list,
+    )
+    return report.model_copy(
+        update={"mode": "deep", "pipelines_run": [PIPELINE_LAB_ADAPTIVE]},
+    )

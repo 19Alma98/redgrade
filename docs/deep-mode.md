@@ -53,8 +53,12 @@ See [examples/redgrade.deep.yaml](../examples/redgrade.deep.yaml):
 
 ```yaml
 target:
-  type: function
-  path: examples.demo_app:vulnerable
+  type: http
+  url: http://localhost:8000/chat
+  body: { message: "{{prompt}}", context: "{{documents}}", history: "{{history}}" }
+  response_path: reply
+  # type: function
+  # path: examples.demo_app:vulnerable
   # type: llm
   # model: ollama_chat/llama3.2
   # api_base: http://127.0.0.1:11434

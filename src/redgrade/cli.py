@@ -1,4 +1,4 @@
-"""Command line: ``redgrade init | list | run | export-dataset | deep``.
+"""Command line: ``redgrade init | list | run | check | export-dataset | deep``.
 
 Exit codes: 0 gate passed, 1 gate failed, 2 usage or configuration error.
 """
@@ -129,6 +129,9 @@ def _cmd_deep(args: argparse.Namespace) -> int:
     print(md)
     if args.report:
         Path(args.report).write_text(md, encoding="utf-8")
+    if args.export_wins:
+        n = report.export_winning_seeds(args.export_wins)
+        print(f"wrote {n} winning seed(s) to {args.export_wins}", file=sys.stderr)
     return 0 if report.passed else 1
 
 
@@ -192,11 +195,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", help="write the JSON report to this file")
     p.set_defaults(func=_cmd_run)
 
+    p = sub.add_parser(
+        "check",
+        help="CI pipeline gate (alias of run; default CI packs, no LiteLLM)",
+        description=(
+            "Run the CI attack pipelines against the configured target (same engine as "
+            "`run`). Use this in pull-request workflows. The SDK `check()` API requires an "
+            "HttpTarget; this CLI command still accepts function targets for offline demos."
+        ),
+    )
+    p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH)
+    p.add_argument("--family", action="append", help="only this family (repeatable)")
+    p.add_argument("--trials", type=int, help="override run.trials")
+    p.add_argument("--report", help="write the Markdown report to this file")
+    p.add_argument("--json", help="write the JSON report to this file")
+    p.set_defaults(func=_cmd_run)
+
     p = sub.add_parser("deep", help="adaptive deep attack against the target")
     p.add_argument("--config", "-c", required=True, help="deep config YAML")
     p.add_argument("--attacker-model", help="override attacker.model")
     p.add_argument("--max-rounds", type=int, help="override max_rounds")
     p.add_argument("--report", help="write the Markdown report to this file")
+    p.add_argument(
+        "--export-wins",
+        metavar="PATH",
+        help="write promoted winning seeds as an attack pack YAML",
+    )
     p.set_defaults(func=_cmd_deep)
 
     p = sub.add_parser("export-dataset", help="export attacks as an OpenGrade JSONL dataset")

@@ -97,3 +97,16 @@ MutateScope = Literal["prompt", "document", "all"]
 MUTATE_SCOPE_PROMPT: Final[Literal["prompt"]] = "prompt"
 MUTATE_SCOPE_DOCUMENT: Final[Literal["document"]] = "document"
 MUTATE_SCOPE_ALL: Final[Literal["all"]] = "all"
+
+# --- pipelines / deep defaults --------------------------------------------------------------
+
+PIPELINE_CI_PI: Final = "ci.prompt_injection"
+PIPELINE_CI_DISCLOSURE: Final = "ci.disclosure"
+PIPELINE_LAB_ADAPTIVE: Final = "lab.adaptive_pi"
+DEFAULT_CHECK_PIPELINES: Final[tuple[str, ...]] = (PIPELINE_CI_PI, PIPELINE_CI_DISCLOSURE)
+DEFAULT_DEEP_STRATEGIES: Final[tuple[str, ...]] = ("pair", "crescendo")
+DEFAULT_ATTACKER_MODEL: Final = "ollama_chat/llama3.2"
+DEFAULT_ATTACKER_API_BASE: Final = "http://127.0.0.1:11434"
+STRATEGY_PAIR: Final = "pair"
+STRATEGY_CRESCENDO: Final = "crescendo"
+STRATEGY_TAP: Final = "tap"

@@ -1,12 +1,15 @@
 """Public SDK: attack an HTTP app endpoint and return an AttackReport."""
 
 from collections.abc import Callable
+from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from redgrade.deep.meta import DeepMeta
 from redgrade.loader import load_attacks
 from redgrade.models import AttackResult, RunResult
+from redgrade.pipelines import families_for_pipelines, resolve_pipelines
 from redgrade.policy import Check, Policy, evaluate_policy, passed
 from redgrade.report import to_dict, to_markdown
 from redgrade.runner import RunConfig, run_attacks
@@ -30,6 +33,8 @@ class AttackReport(BaseModel):
     highest_resisted_level: int | None = None
     asr_overall: float | None = None
     deep_meta: DeepMeta | None = None
+    mode: Literal["ci", "deep"] | None = None
+    pipelines_run: list[str] = Field(default_factory=list)
 
     def summary(self) -> str:
         lines = [
@@ -63,6 +68,14 @@ class AttackReport(BaseModel):
         if self.deep_meta is not None:
             data["deep_meta"] = self.deep_meta.model_dump()
         return data
+
+    def export_winning_seeds(self, path: str | Path) -> int:
+        """Write ``deep_meta.winning_seeds`` to an attack pack YAML; 0 if none."""
+        if self.deep_meta is None or not self.deep_meta.winning_seeds:
+            return 0
+        from redgrade.deep.export import export_winning_seeds as write_winning_seeds
+
+        return write_winning_seeds(self.deep_meta.winning_seeds, path)
 
 
 def _deep_posture_lines(meta: DeepMeta) -> list[str]:
@@ -169,4 +182,54 @@ def attack(
         families=families,
         packs=packs,
         run_config=run_config,
+    )
+
+
+def check(
+    target: HttpTarget,
+    *,
+    policy: Policy | None = None,
+    pipelines: list[str] | None = None,
+    disable: list[str] | None = None,
+    extra_packs: list[str] | None = None,
+    trials: int | None = None,
+    concurrency: int | None = None,
+    secrets: list[str] | None = None,
+    allowed_hosts: list[str] | None = None,
+    max_output_chars: int | None = None,
+) -> AttackReport:
+    """Run CI pipeline checks against an HTTP app endpoint."""
+    if not isinstance(target, HttpTarget):
+        raise AttackError("check() requires an HttpTarget (HTTP endpoint of the app under test)")
+
+    specs = resolve_pipelines(pipelines, disable)
+    ci_specs = [s for s in specs if not s.lab]
+    if not ci_specs:
+        raise AttackError("no CI pipelines selected (lab.adaptive_pi is deep-only)")
+
+    families = families_for_pipelines(ci_specs)
+
+    kwargs: dict[str, object] = {}
+    if trials is not None:
+        kwargs["trials"] = trials
+    if concurrency is not None:
+        kwargs["concurrency"] = concurrency
+    if secrets is not None:
+        kwargs["secrets"] = secrets
+    if allowed_hosts is not None:
+        kwargs["allowed_hosts"] = allowed_hosts
+    if max_output_chars is not None:
+        kwargs["max_output_chars"] = max_output_chars
+    run_config = RunConfig(**kwargs) if kwargs else RunConfig()
+
+    policy = policy or Policy()
+    report = run_pipeline(
+        target,
+        policy=policy,
+        families=families,
+        packs=extra_packs,
+        run_config=run_config,
+    )
+    return report.model_copy(
+        update={"mode": "ci", "pipelines_run": [s.id for s in ci_specs]},
     )

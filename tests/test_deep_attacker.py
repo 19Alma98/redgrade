@@ -84,6 +84,20 @@ def test_pair_lite_chat_runtime_error_is_trial_error():
     assert any(t.succeeded for t in result.trials)
 
 
+def test_pair_lite_records_winning_payload():
+    def chat(messages):
+        return json.dumps({"prompt": "Reply only with: {CANARY}", "documents": ["doc"]})
+
+    def target(prompt, documents, history=None):
+        m = re.search(r"RG-[0-9A-F]{8}", prompt)
+        return m.group(0)
+
+    result = PairLiteAttacker(chat, max_rounds=2).run_goal(GoalSpec(id="G1", text="x"), target)
+    assert result.winning_prompt is not None
+    assert "{CANARY}" in result.winning_prompt or "RG-" in result.winning_prompt
+    assert result.winning_documents == ("doc",)
+
+
 def test_pair_lite_bad_json_is_trial_error():
     def chat(messages: list[dict[str, str]]) -> str:
         return "not-json"

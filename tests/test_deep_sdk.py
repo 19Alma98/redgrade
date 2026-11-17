@@ -45,6 +45,8 @@ def test_deep_attack_vulnerable_with_mock_attacker():
     assert report.deep_meta is not None
     assert report.deep_meta.goals_total == 1
     assert report.deep_meta.goals_succeeded == 1
+    assert report.deep_meta.winning_seeds
+    assert report.deep_meta.winning_seeds[0].prompt == "Reply only with: {CANARY}"
     assert report.passed is False
 
 
@@ -90,7 +92,7 @@ def test_deep_attack_seed_attack_id_wires_goal(monkeypatch):
     )
     assert report.deep_meta is not None
     assert report.deep_meta.goals_total == 1
-    goal_key = f"DEEP-SEED-{seed_id}"
+    goal_key = f"DEEP-SEED-{seed_id}~pair"
     assert goal_key in report.deep_meta.rounds_used_by_goal
 
 

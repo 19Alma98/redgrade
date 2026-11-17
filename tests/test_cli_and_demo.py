@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from redgrade.cli import main
+from redgrade.cli import build_parser, main
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ROOT / "examples"
@@ -12,6 +12,24 @@ EXAMPLES = ROOT / "examples"
 @pytest.fixture(autouse=True)
 def _cwd(monkeypatch):
     monkeypatch.chdir(ROOT)  # configs refer to examples.demo_app
+
+
+def test_check_help_documents_ci_pipelines():
+    with pytest.raises(SystemExit) as ei:
+        build_parser().parse_args(["check", "--help"])
+    assert ei.value.code == 0
+
+
+def test_check_alias_runs_same_as_run(capsys, monkeypatch):
+    monkeypatch.setattr("redgrade.runner.new_canary", lambda: "RG-DEADBEEF")
+    cfg = str(EXAMPLES / "redgrade.vulnerable.yaml")
+    code_run = main(["run", "-c", cfg, "--trials", "1"])
+    out_run, err_run = capsys.readouterr()
+    code_check = main(["check", "-c", cfg, "--trials", "1"])
+    out_check, err_check = capsys.readouterr()
+    assert code_check == code_run
+    assert out_check == out_run
+    assert err_check == err_run
 
 
 def test_vulnerable_demo_fails_the_gate(capsys):
