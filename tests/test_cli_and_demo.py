@@ -75,11 +75,12 @@ def test_init_writes_a_loadable_config(tmp_path, monkeypatch):
     assert load_config("redgrade.yaml").run.trials == 3
 
 
-def test_list_shows_planned_families(capsys):
+def test_list_shows_families_and_opt_in(capsys):
     assert main(["list"]) == 0
     out = capsys.readouterr().out
-    assert "PI-D-001" in out and "planned v0.4" in out
+    assert "PI-D-001" in out
     assert "agent_goal_hijack" in out and "mcp_attacks" in out
+    assert "jailbreak" in out and "opt-in" in out
     assert "LEVEL" in out and "TECHNIQUE" in out
 
 

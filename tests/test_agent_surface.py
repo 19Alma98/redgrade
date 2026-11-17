@@ -22,6 +22,8 @@ def ctx(**kw) -> DetectorContext:
 def test_families_agent_and_mcp_available():
     assert FAMILY_BY_ID["agent_goal_hijack"].status == "available"
     assert FAMILY_BY_ID["mcp_attacks"].status == "available"
+    assert FAMILY_BY_ID["agent_handoff"].status == "available"
+    assert FAMILY_BY_ID["agent_handoff"].opt_in is False
 
 
 def test_builtin_loads_agent_and_mcp_packs():

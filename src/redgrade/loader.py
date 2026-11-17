@@ -199,6 +199,7 @@ class PackLoader:
         extra_packs: list[str] | None = None,
         families: list[str] | None = None,
         ids: list[str] | None = None,
+        include_opt_in: bool = False,
     ) -> list[Attack]:
         attacks = self._collect_builtin()
         for pack in extra_packs or []:
@@ -213,6 +214,10 @@ class PackLoader:
             if unknown:
                 raise PackError(f"unknown families: {', '.join(sorted(unknown))}")
             attacks = [a for a in attacks if a.family in families]
+        elif not include_opt_in:
+            opt_in_ids = {fid for fid, fam in FAMILY_BY_ID.items() if fam.opt_in}
+            if opt_in_ids:
+                attacks = [a for a in attacks if a.family not in opt_in_ids]
         if ids:
             attacks = [a for a in attacks if a.id in ids]
         return self._finalize(attacks)
@@ -231,5 +236,11 @@ def load_attacks(
     extra_packs: list[str] | None = None,
     families: list[str] | None = None,
     ids: list[str] | None = None,
+    include_opt_in: bool = False,
 ) -> list[Attack]:
-    return PackLoader().load(extra_packs=extra_packs, families=families, ids=ids)
+    return PackLoader().load(
+        extra_packs=extra_packs,
+        families=families,
+        ids=ids,
+        include_opt_in=include_opt_in,
+    )

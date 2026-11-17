@@ -24,7 +24,9 @@ Applications (2026).
 | 0.3 | Agents: goal hijack, unauthorized tool use, manipulated parameters, SSRF/path traversal via tools | LLM06, ASI01 | shipped (8 attacks) |
 | 0.3 | MCP: tool poisoning, rug pull, cross-server shadowing, confused deputy, poisoned tool outputs | LLM06 | shipped (6 attacks) |
 | 0.3 | Target observation: `tools_called` / HTTP `tools_path` / `{{tools}}` + tool detectors | LLM06 | shipped |
-| 0.4 | Jailbreak and harmful content (optional pack, model-dependent) | LLM01 | planned |
+| 0.4 | Multi-chain / handoff injection (tool-handoff) | ASI01 | shipped (6 attacks) |
+| 0.4 | Jailbreak and harmful content (opt-in family; policy-bypass proxies) | LLM01 | shipped (7 attacks) |
+| 0.4 | Business integrity / policy abuse (opt-in + Acme example pack) | ASI / brand | shipped (5 + example) |
 
 ## Cross-cutting
 

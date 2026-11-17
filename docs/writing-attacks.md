@@ -149,6 +149,30 @@ Family `task_utility` is not an attack. Probes use `contains` (or similar) so
 The gate uses `min_utility` (higher is better) and optional `require_utility`. Add domain probes
 in an extra pack with `family: task_utility`.
 
+## Opt-in families
+
+Some builtin families are **opt-in**: they ship with Redgrade and appear in `redgrade list`, but
+they are **excluded** from a default `redgrade run` / `load_attacks()` unless you select them:
+
+```yaml
+families: [jailbreak]            # or business_integrity
+```
+
+```bash
+redgrade run -c redgrade.yaml --family jailbreak
+```
+
+Today that includes `jailbreak` (policy-bypass proxies; not real harmful recipes) and
+`business_integrity` (generic brand/policy abuse). Specialize business rules with an extra pack
+such as [`examples/packs/acme_business_integrity.yaml`](../examples/packs/acme_business_integrity.yaml)
+and keep `families: [business_integrity]` (or list both builtin and custom attack ids).
+
+## Agent handoff (multi-chain)
+
+Family `agent_handoff` models cross-agent routing as **tool calls** (`transfer_to_*`, `handoff`).
+Use the same tools trajectory as agent/MCP packs (`requires_tools: true`, `forbidden_tool` /
+`tool_called`). No separate multi-agent protocol is required.
+
 ## Why `trials`
 
 Model output is random. An attack that works 1 time in 3 is a real vulnerability that a single

@@ -133,8 +133,10 @@ and the report shows a coverage matrix so planned families never look "tested".
 | Task utility / over-refusal | utility | 7 | shipped |
 | Agent goal hijack and tool misuse | LLM06, ASI01 | 8 | shipped |
 | MCP: tool poisoning, rug pull, shadowing, confused deputy | LLM06 | 6 | shipped |
+| Multi-chain / handoff injection | ASI01 | 6 | shipped |
+| Jailbreak and harmful content (opt-in) | LLM01 | 7 | shipped |
+| Business integrity / policy abuse (opt-in) | ASI / brand | 5 | shipped |
 | More output handling (XSS, SQL/shell in output) | LLM05 | | later |
-| Jailbreak and harmful content | LLM01 | | 0.4 |
 
 Write your own attacks as YAML: [docs/writing-attacks.md](docs/writing-attacks.md).
 

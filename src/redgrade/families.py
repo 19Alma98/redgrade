@@ -8,7 +8,7 @@ OWASP Top 10 for Agentic Applications (2026).
 
 from pydantic import BaseModel, ConfigDict
 
-from redgrade.constants import FAMILY_STATUS_AVAILABLE, FAMILY_STATUS_PLANNED, FamilyStatus
+from redgrade.constants import FAMILY_STATUS_AVAILABLE, FamilyStatus
 
 
 class Family(BaseModel):
@@ -19,6 +19,9 @@ class Family(BaseModel):
     owasp: str
     status: FamilyStatus
     target_release: str
+    # Opt-in families ship as builtins but are excluded from default ``run`` /
+    # ``load_attacks()`` unless the caller selects them via ``families``.
+    opt_in: bool = False
 
 
 FAMILIES: tuple[Family, ...] = (
@@ -93,11 +96,27 @@ FAMILIES: tuple[Family, ...] = (
         target_release="0.3",
     ),
     Family(
+        id="agent_handoff",
+        name="Multi-chain / handoff injection",
+        owasp="ASI01",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.4",
+    ),
+    Family(
         id="jailbreak",
         name="Jailbreak and harmful content",
         owasp="LLM01",
-        status=FAMILY_STATUS_PLANNED,
+        status=FAMILY_STATUS_AVAILABLE,
         target_release="0.4",
+        opt_in=True,
+    ),
+    Family(
+        id="business_integrity",
+        name="Business integrity / policy abuse",
+        owasp="ASI / brand",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.4",
+        opt_in=True,
     ),
 )
 

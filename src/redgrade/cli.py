@@ -38,7 +38,12 @@ def _truncate(text: str, max_len: int) -> str:
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
-    attacks = load_attacks(extra_packs=args.pack, families=args.family or None)
+    # Discoverability: list includes opt-in builtins unless --family narrows the set.
+    attacks = load_attacks(
+        extra_packs=args.pack,
+        families=args.family or None,
+        include_opt_in=not args.family,
+    )
     print(f"{'ID':<10}{'LEVEL':<6}{'TECHNIQUE':<22}{'SEVERITY':<10}{'OWASP':<14}{'FAMILY':<28}TITLE")
     for a in attacks:
         level = "" if a.level is None else str(a.level)
@@ -48,7 +53,10 @@ def _cmd_list(args: argparse.Namespace) -> int:
     print("\nfamilies:")
     for f in FAMILIES:
         n = sum(1 for a in attacks if a.family == f.id)
-        status = f"{n} attacks" if f.status == FAMILY_STATUS_AVAILABLE else f"planned v{f.target_release}"
+        if f.status == FAMILY_STATUS_AVAILABLE:
+            status = f"{n} attacks (opt-in)" if f.opt_in else f"{n} attacks"
+        else:
+            status = f"planned v{f.target_release}"
         print(f"  {f.id:<28}{f.owasp:<14}{status}")
     return 0
 
