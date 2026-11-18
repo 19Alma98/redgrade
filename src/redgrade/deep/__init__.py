@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from typing import Any
+
 from redgrade.deep.errors import DeepError
 from redgrade.deep.llm_target import LlmTarget
 from redgrade.deep.meta import DeepMeta
@@ -5,7 +8,7 @@ from redgrade.deep.meta import DeepMeta
 __all__ = ["DeepError", "DeepMeta", "LlmTarget", "check_deep", "deep_attack", "summarize_scorecard"]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Callable[..., Any]:
     if name == "deep_attack":
         from redgrade.deep.sdk import deep_attack
 

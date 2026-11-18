@@ -1,5 +1,7 @@
 """Redgrade: red-team your LLM app in CI."""
 
+from collections.abc import Callable
+
 from redgrade.attachments import Attachment, AttachmentSpec
 from redgrade.baseline import Baseline, BaselinePolicy, Waiver
 from redgrade.loader import load_attacks
@@ -37,7 +39,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Callable[..., AttackReport]:
     if name == "check_deep":
         from redgrade.deep.sdk import check_deep
 

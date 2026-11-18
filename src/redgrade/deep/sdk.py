@@ -15,7 +15,7 @@ from redgrade.deep.llm_target import LlmTarget
 from redgrade.deep.meta import DeepMeta, WinningSeed
 from redgrade.deep.strategies import get_strategy
 from redgrade.loader import load_attacks
-from redgrade.models import Attack, AttackResult, RunResult
+from redgrade.models import Attack, AttackResult, RunResult, Trial
 from redgrade.pipelines import families_for_pipelines, resolve_pipelines
 from redgrade.policy import Policy, evaluate_policy
 from redgrade.sdk import AttackError, AttackReport, _build_report
@@ -30,7 +30,7 @@ def _seed_documents(attack: Attack) -> tuple[str, ...]:
     return ()
 
 
-def _goal_succeeded(trials: list) -> bool:
+def _goal_succeeded(trials: list[Trial]) -> bool:
     return any(t.succeeded for t in trials if t.error is None)
 
 

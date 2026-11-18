@@ -3,7 +3,6 @@
 import base64
 import codecs
 import re
-from typing import cast
 
 from redgrade.attachments import Attachment, AttachmentSpec, build_attachment
 from redgrade.models import Attack, AttackTurn
@@ -31,7 +30,7 @@ def render_json(node: JsonValue, canary: str) -> JsonValue:
     if isinstance(node, list):
         return [render_json(x, canary) for x in node]
     if isinstance(node, dict):
-        return {str(k): render_json(cast(JsonValue, v), canary) for k, v in node.items()}
+        return {str(k): render_json(v, canary) for k, v in node.items()}
     return node
 
 
