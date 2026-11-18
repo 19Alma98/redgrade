@@ -102,6 +102,25 @@ class AttackReport(BaseModel):
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
 
+    def to_sarif(self, *, location_uri: str = "redgrade.yaml", include_output: bool = False) -> str:
+        """SARIF 2.1.0 for GitHub code scanning (model output omitted unless requested)."""
+        from redgrade import __version__
+        from redgrade.formats.sarif import to_sarif
+
+        return to_sarif(
+            self.run,
+            version=__version__,
+            comparison=self.baseline,
+            location_uri=location_uri,
+            include_output=include_output,
+        )
+
+    def to_junit(self, *, include_output: bool = False) -> str:
+        """JUnit XML: one testsuite per family plus the gate checks."""
+        from redgrade.formats.junit import to_junit
+
+        return to_junit(self.run, self.checks, include_output=include_output)
+
     def to_baseline(self) -> Baseline:
         """Snapshot of this run, to commit as the reference for later comparisons."""
         return Baseline.from_run(self.run)

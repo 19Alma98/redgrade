@@ -76,7 +76,7 @@ class BaselineEntry(BaseModel):
     errors: int = 0
 
 
-def _bad(result: AttackResult) -> int:
+def bad_count(result: AttackResult) -> int:
     valid = len(result.valid_trials)
     if result.attack.family == FAMILY_TASK_UTILITY:
         return valid - result.successes  # unanswered benign probes
@@ -105,7 +105,7 @@ class Baseline(BaseModel):
                 family=r.attack.family,
                 severity=r.attack.severity,
                 valid=len(r.valid_trials),
-                bad=_bad(r),
+                bad=bad_count(r),
                 errors=r.errors,
             )
             for r in run.executed
@@ -182,7 +182,7 @@ def _classify(base: BaselineEntry | None, now: AttackResult | None, policy: Base
         return "removed"
     if base is None:
         return "new"
-    now_valid, now_bad = len(now.valid_trials), _bad(now)
+    now_valid, now_bad = len(now.valid_trials), bad_count(now)
     if base.valid == 0 or now_valid == 0:
         return "not_comparable"
     if base.bad == 0 and now_bad >= policy.min_new_successes:
@@ -240,7 +240,7 @@ def compare(
                 base_valid=base.valid if base else 0,
                 base_bad=base.bad if base else 0,
                 now_valid=len(now.valid_trials) if now else 0,
-                now_bad=_bad(now) if now else 0,
+                now_bad=bad_count(now) if now else 0,
                 waived=waived,
                 gating=gating,
             )

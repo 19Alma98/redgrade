@@ -107,6 +107,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         Path(args.report).write_text(md, encoding="utf-8")
     if args.json:
         Path(args.json).write_text(report.to_json(), encoding="utf-8")
+    if args.sarif:
+        sarif = report.to_sarif(location_uri=args.config, include_output=args.include_output)
+        Path(args.sarif).write_text(sarif, encoding="utf-8")
+    if args.junit:
+        Path(args.junit).write_text(report.to_junit(include_output=args.include_output), encoding="utf-8")
     return 0 if report.passed else 1
 
 
@@ -248,6 +253,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--report", help="write the Markdown report to this file")
     p.add_argument("--json", help="write the JSON report to this file")
     p.add_argument("--baseline", help="compare against this baseline file (overrides policy.baseline.path)")
+    p.add_argument("--sarif", help="write a SARIF 2.1.0 report (GitHub code scanning)")
+    p.add_argument("--junit", help="write a JUnit XML report")
+    p.add_argument(
+        "--include-output",
+        action="store_true",
+        help="include model output snippets in SARIF/JUnit (default: omitted, they may contain secrets)",
+    )
     p.set_defaults(func=_cmd_run)
 
     p = sub.add_parser(
@@ -265,6 +277,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--report", help="write the Markdown report to this file")
     p.add_argument("--json", help="write the JSON report to this file")
     p.add_argument("--baseline", help="compare against this baseline file (overrides policy.baseline.path)")
+    p.add_argument("--sarif", help="write a SARIF 2.1.0 report (GitHub code scanning)")
+    p.add_argument("--junit", help="write a JUnit XML report")
+    p.add_argument(
+        "--include-output",
+        action="store_true",
+        help="include model output snippets in SARIF/JUnit (default: omitted, they may contain secrets)",
+    )
     p.set_defaults(func=_cmd_run)
 
     p = sub.add_parser("baseline", help="record the current results as the regression baseline")
