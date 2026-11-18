@@ -145,7 +145,7 @@ class ReportBuilder:
                 lines.append(f"| {c.name} | {_pct(c.value)} | >= {_pct(c.limit)} | {mark} |")
             elif c.name.startswith("baseline."):
                 lines.append(f"| {c.name} | {int(c.value)} | <= {int(c.limit)} | {mark} |")
-            elif c.name in ("pi.score", "pi.resisted_level"):
+            elif c.name in ("pi.score", "pi.resisted_level") or c.name.startswith("score."):
                 lines.append(f"| {c.name} | {c.value} | >= {c.limit} | {mark} |")
             else:
                 lines.append(f"| {c.name} | {_pct(c.value)} | <= {_pct(c.limit)} | {mark} |")

@@ -76,6 +76,7 @@ class ReportDictRequired(TypedDict):
 class ReportDict(ReportDictRequired, total=False):
     deep_meta: dict[str, JsonValue]
     baseline: dict[str, JsonValue]
+    scorecard: dict[str, JsonValue]
 
 
 class OpenGradeRow(Protocol):

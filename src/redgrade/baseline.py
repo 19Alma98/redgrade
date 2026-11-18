@@ -23,7 +23,7 @@ from redgrade.stats import wilson_interval
 BASELINE_SCHEMA_VERSION = 1
 DEFAULT_BASELINE_PATH = ".redgrade/baseline.json"
 
-_SEVERITY_RANK = {s: i for i, s in enumerate(SEVERITIES)}
+_SEVERITY_RANK: dict[str, int] = {s: i for i, s in enumerate(SEVERITIES)}
 
 DeltaStatus = Literal["regression", "worsened", "improved", "unchanged", "new", "removed", "not_comparable"]
 

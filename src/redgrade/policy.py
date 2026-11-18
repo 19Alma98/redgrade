@@ -16,6 +16,7 @@ from redgrade.constants import (
     SEVERITY_CRITICAL,
 )
 from redgrade.models import RunResult
+from redgrade.scorecard import build_scorecard
 from redgrade.scoring import PiScorer
 from redgrade.utility import attack_results, utility_rate, utility_results
 
@@ -38,6 +39,8 @@ class Policy(BaseModel):
     ``require_utility``         if True, fail when no ``task_utility`` probes executed
     ``baseline``                per-attack regression gate against a recorded baseline
     (see ``redgrade.baseline.BaselinePolicy``)
+    ``min_security_score``      minimum overall scorecard score (0-100); see ``redgrade.scorecard``
+    ``min_family_score``        per-family minimum scores, e.g. ``{"rag_poisoning": 80}``
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -53,6 +56,23 @@ class Policy(BaseModel):
     min_utility: float = DEFAULT_MIN_UTILITY
     require_utility: bool = False
     baseline: BaselinePolicy | None = None
+    min_security_score: int | None = None
+    min_family_score: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("min_security_score")
+    @classmethod
+    def _validate_min_security_score(cls, value: int | None) -> int | None:
+        if value is not None and not (0 <= value <= 100):
+            raise ValueError("min_security_score must be between 0 and 100")
+        return value
+
+    @field_validator("min_family_score")
+    @classmethod
+    def _validate_min_family_score(cls, value: dict[str, int]) -> dict[str, int]:
+        for family, limit in value.items():
+            if not (0 <= limit <= 100):
+                raise ValueError(f"min_family_score for {family} must be between 0 and 100")
+        return value
 
     @field_validator("min_pi_score")
     @classmethod
@@ -255,6 +275,31 @@ class PolicyEvaluator:
                     passed=v > 0 and rate_l <= limit,
                 )
             )
+
+        if policy.min_security_score is not None or policy.min_family_score:
+            card = build_scorecard(run)
+            if policy.min_security_score is not None:
+                value = float(card.score if card.score is not None else 0)
+                checks.append(
+                    Check(
+                        name="score.overall",
+                        value=value,
+                        limit=float(policy.min_security_score),
+                        passed=card.score is not None and card.score >= policy.min_security_score,
+                    )
+                )
+            by_family = {f.family: f for f in card.families}
+            for family, limit in policy.min_family_score.items():
+                fs = by_family.get(family)
+                got = fs.score if fs is not None else None
+                checks.append(
+                    Check(
+                        name=f"score.family.{family}",
+                        value=float(got if got is not None else 0),
+                        limit=float(limit),
+                        passed=got is not None and got >= limit,
+                    )
+                )
 
         if comparison is not None and policy.baseline is not None:
             bp = policy.baseline

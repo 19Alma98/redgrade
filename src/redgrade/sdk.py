@@ -24,6 +24,7 @@ from redgrade.pipelines import families_for_pipelines, resolve_pipelines
 from redgrade.policy import Check, Policy, evaluate_policy, passed
 from redgrade.report import to_dict, to_markdown
 from redgrade.runner import RunConfig, run_attacks
+from redgrade.scorecard import Scorecard, build_scorecard, scorecard_markdown
 from redgrade.scoring import PiScorer
 from redgrade.targets import HttpTarget, Target
 from redgrade.types import ReportDict
@@ -49,6 +50,12 @@ class AttackReport(BaseModel):
     mode: Literal["ci", "deep"] | None = None
     pipelines_run: list[str] = Field(default_factory=list)
     baseline: BaselineComparison | None = None
+    grade: str | None = None
+    security_score: int | None = None
+
+    def scorecard(self) -> Scorecard:
+        """Per-family and overall score with 95% ranges and a letter grade."""
+        return build_scorecard(self.run)
 
     def summary(self) -> str:
         lines = [
@@ -59,6 +66,8 @@ class AttackReport(BaseModel):
             lines.append(f"Utility: {self.utility_overall * 100:.0f}%")
         if self.pi_score is not None:
             lines.append(f"PI Maturity Score: {self.pi_score}/100")
+        if self.security_score is not None:
+            lines.append(f"Security grade: {self.grade} ({self.security_score}/100)")
         failed = [c for c in self.checks if not c.passed]
         if failed:
             lines.append("Failed checks:")
@@ -85,6 +94,7 @@ class AttackReport(BaseModel):
 
     def to_markdown(self) -> str:
         md = to_markdown(self.run, self.checks, self.policy)
+        md = md.rstrip("\n") + "\n" + "\n".join(scorecard_markdown(self.scorecard())) + "\n"
         if self.baseline is not None:
             md = md.rstrip("\n") + "\n" + "\n".join(baseline_markdown(self.baseline)) + "\n"
         if self.deep_meta is not None:
@@ -95,6 +105,7 @@ class AttackReport(BaseModel):
         data = to_dict(self.run, self.checks, self.policy)
         if self.deep_meta is not None:
             data["deep_meta"] = self.deep_meta.model_dump()
+        data["scorecard"] = self.scorecard().model_dump(mode="json")
         if self.baseline is not None:
             data["baseline"] = self.baseline.model_dump(mode="json")
         return data
@@ -186,6 +197,7 @@ def _build_report(
     deep_meta: DeepMeta | None = None,
 ) -> AttackReport:
     posture = PiScorer().score(run, max_asr_by_level=policy.max_asr_by_level or None)
+    card = build_scorecard(run)
     return AttackReport(
         passed=passed(checks),
         checks=checks,
@@ -193,6 +205,8 @@ def _build_report(
         policy=policy,
         pi_score=posture.score,
         highest_resisted_level=posture.highest_resisted_level,
+        grade=card.grade,
+        security_score=card.score,
         asr_overall=_overall_asr(run),
         utility_overall=utility_rate(run),
         deep_meta=deep_meta,

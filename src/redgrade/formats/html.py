@@ -1,13 +1,13 @@
 """Self-contained HTML report: no scripts, no external requests, light and dark theme."""
 
-from collections import defaultdict
 from html import escape
 
 from redgrade.baseline import BaselineComparison, bad_count
 from redgrade.constants import PI_LEVEL_WEIGHTS, SEVERITIES
-from redgrade.formats._common import finding_message, findings, is_utility
+from redgrade.formats._common import finding_message, findings
 from redgrade.models import RunResult
 from redgrade.policy import Check, passed
+from redgrade.scorecard import build_scorecard
 
 _CSS = """
 :root{--bg:#fff;--fg:#1b1f24;--muted:#5b6672;--line:#d6dbe1;--ok:#1a7f37;--bad:#c62828;
@@ -24,6 +24,8 @@ h1{font-size:1.5rem;margin:0 0 4px}h2{font-size:1.1rem;margin:32px 0 8px}
 th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
 th{font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.grade-A,.grade-B{background:var(--okbg);color:var(--ok)}.grade-C{background:var(--warnbg);color:var(--warn)}
+.grade-D,.grade-F{background:var(--badbg);color:var(--bad)}
 .c0{background:var(--okbg)}.c1{background:var(--warnbg)}.c2{background:var(--badbg)}
 .sev-critical,.sev-high{color:var(--bad);font-weight:600}.sev-medium{color:var(--warn)}
 code{background:var(--card);padding:1px 5px;border-radius:4px;word-break:break-word}
@@ -72,31 +74,34 @@ def _gate(checks: list[Check]) -> str:
     return _table(["check", "value", "limit", ""], rows, frozenset({1, 2}))
 
 
-def _matrix(run: RunResult) -> str:
-    cells: dict[tuple[str, int | None], list[int]] = defaultdict(lambda: [0, 0])
-    for r in run.executed:
-        if is_utility(r):
-            continue
-        key = (r.attack.family, r.attack.level)
-        cells[key][0] += len(r.valid_trials)
-        cells[key][1] += r.successes
-    families = sorted({f for f, _ in cells})
-    if not families:
-        return '<p class="muted">No attacks ran.</p>'
-    levels: list[int | None] = [*PI_LEVEL_WEIGHTS, None]
+def _scorecard(run: RunResult) -> str:
+    card = build_scorecard(run)
+    if card.score is None:
+        return '<p class="muted">No attack produced a valid trial: no score.</p>'
+    cap = f" &middot; capped: {escape(card.capped_by)}" if card.capped_by else ""
+    out = [
+        f'<p><span class="badge grade-{card.grade}">Grade {card.grade}</span> '
+        f"security score <strong>{card.score}/100</strong> "
+        f'<span class="muted">(95% range {card.score_low}-{card.score_high}; coverage '
+        f"{card.coverage.tested}/{card.coverage.available} default families){cap}</span></p>"
+    ]
+    levels = [str(lv) for lv in PI_LEVEL_WEIGHTS] + ["none"]
     rows = []
-    for fam in families:
-        row = [_td(fam)]
+    for f in card.families:
+        row = [_td(f.name), _td(f.grade or "n/a"), _td(f"{f.score} ({f.score_low}-{f.score_high})", "num")]
         for lv in levels:
-            valid, wins = cells.get((fam, lv), [0, 0])
-            if not valid:
+            cell = f.by_level.get(lv)
+            if cell is None or not cell.valid:
                 row.append(_td("-", "num"))
             else:
-                rate = wins / valid
-                row.append(_td(f"{_pct(rate)} ({wins}/{valid})", f"num {_cell_class(rate)}"))
+                row.append(
+                    _td(f"{_pct(cell.asr)} ({cell.wins}/{cell.valid})", f"num {_cell_class(cell.asr)}")
+                )
         rows.append(row)
-    head = ["family", *[f"L{lv}" for lv in PI_LEVEL_WEIGHTS], "no level"]
-    return _table(head, rows, frozenset(range(1, len(head))))
+    head = ["family", "grade", "score", *[f"L{lv}" for lv in PI_LEVEL_WEIGHTS], "no level"]
+    out.append(_table(head, rows, frozenset(range(2, len(head)))))
+    out += [f'<p class="muted">{escape(c)}</p>' for c in card.caveats]
+    return "".join(out)
 
 
 def to_html(
@@ -116,9 +121,9 @@ def to_html(
         f"&times; {run.trials_per_attack} trials &middot; {len(run.skipped)} skipped</p>",
         "<h2>Gate</h2>",
         _gate(checks),
-        "<h2>Attack success rate by family and level</h2>",
-        '<p class="muted">Lower is better. Cells show ASR (successes/valid trials).</p>',
-        _matrix(run),
+        "<h2>Scorecard</h2>",
+        '<p class="muted">Level columns: attack success rate (successes/valid trials), lower is better.</p>',
+        _scorecard(run),
     ]
 
     if comparison is not None:

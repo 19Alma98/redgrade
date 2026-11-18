@@ -8,7 +8,7 @@ from xml.etree import ElementTree as ET
 
 from redgrade.baseline import bad_count
 from redgrade.formats._common import finding_message
-from redgrade.models import RunResult
+from redgrade.models import AttackResult, RunResult
 from redgrade.policy import Check
 
 
@@ -19,7 +19,7 @@ def to_junit(
     include_output: bool = False,
 ) -> str:
     root = ET.Element("testsuites", name="redgrade")
-    families: dict[str, list] = {}
+    families: dict[str, list[AttackResult]] = {}
     for r in run.results:
         families.setdefault(r.attack.family, []).append(r)
 
