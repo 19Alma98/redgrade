@@ -5,6 +5,7 @@ import codecs
 import re
 from typing import cast
 
+from redgrade.attachments import Attachment, AttachmentSpec, build_attachment
 from redgrade.models import Attack, AttackTurn
 from redgrade.types import HistoryMessage, JsonValue
 
@@ -66,3 +67,24 @@ def render_attack(attack: Attack, canary: str) -> tuple[str, list[str]]:
         documents.append(render(attack.document, canary))
     documents.extend(render(d, canary) for d in attack.documents)
     return prompt, documents
+
+
+def render_attachments(specs: tuple[AttachmentSpec, ...], canary: str) -> list[Attachment]:
+    """Render ``{CANARY}`` / encodings in each spec, then build the real files."""
+    return [
+        build_attachment(
+            spec.model_copy(
+                update={
+                    "payload": render(spec.payload, canary),
+                    "visible": render(spec.visible, canary),
+                    "filename": render(spec.filename, canary),
+                }
+            )
+        )
+        for spec in specs
+    ]
+
+
+def attachments_text(attachments: list[Attachment]) -> list[str]:
+    """Text the target may see from the files (body text and metadata), for detector inputs."""
+    return [t for a in attachments for t in (a.text, a.metadata) if t]

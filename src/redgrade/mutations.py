@@ -5,6 +5,7 @@ import codecs
 import re
 from collections.abc import Callable
 
+from redgrade.attachments import AttachmentSpec
 from redgrade.constants import (
     DEFAULT_MUTATIONS,
     MUTATE_SCOPE_ALL,
@@ -124,6 +125,11 @@ def _mutate_text(kind: str, text: str) -> str:
     return apply_mutation(kind, text)
 
 
+def _mutate_attachments(kind: str, specs: tuple[AttachmentSpec, ...]) -> tuple[AttachmentSpec, ...]:
+    """Mutate only the injected payload; the cover text stays benign."""
+    return tuple(s.model_copy(update={"payload": _mutate_text(kind, s.payload)}) for s in specs)
+
+
 def _apply_scope(attack: Attack, kind: str, scope: MutateScope) -> dict[str, object]:
     updates: dict[str, object] = {}
     mutate_prompt = scope in (MUTATE_SCOPE_PROMPT, MUTATE_SCOPE_ALL)
@@ -138,6 +144,9 @@ def _apply_scope(attack: Attack, kind: str, scope: MutateScope) -> dict[str, obj
         if attack.documents:
             updates["documents"] = tuple(_mutate_text(kind, d) for d in attack.documents)
 
+    if mutate_document and attack.attachments:
+        updates["attachments"] = _mutate_attachments(kind, attack.attachments)
+
     if attack.turns and (mutate_prompt or mutate_document):
         new_turns: list[AttackTurn] = []
         for turn in attack.turns:
@@ -145,7 +154,10 @@ def _apply_scope(attack: Attack, kind: str, scope: MutateScope) -> dict[str, obj
             docs = turn.documents
             if mutate_document and turn.documents:
                 docs = tuple(_mutate_text(kind, d) for d in turn.documents)
-            new_turns.append(AttackTurn(prompt=prompt, documents=docs))
+            files = turn.attachments
+            if mutate_document and files:
+                files = _mutate_attachments(kind, files)
+            new_turns.append(AttackTurn(prompt=prompt, documents=docs, attachments=files))
         updates["turns"] = tuple(new_turns)
 
     return updates

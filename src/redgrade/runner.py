@@ -14,12 +14,19 @@ from redgrade.constants import (
     DEFAULT_TRIALS,
     DETECT_ON_ANY,
     DETECTOR_LLM_JUDGE,
+    SKIP_NO_ATTACHMENTS_SURFACE,
     SKIP_NO_TOOLS_SURFACE,
 )
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.models import Attack, AttackResult, RunResult, TargetObservation, ToolCall, Trial
-from redgrade.render import render_attack, render_tools, render_turn
-from redgrade.targets import Target, invoke_target, normalize_observation, target_observes_tools
+from redgrade.render import attachments_text, render_attachments, render_attack, render_tools, render_turn
+from redgrade.targets import (
+    Target,
+    invoke_target,
+    normalize_observation,
+    target_accepts_attachments,
+    target_observes_tools,
+)
 from redgrade.types import HistoryMessage
 
 
@@ -56,9 +63,10 @@ class AttackRunner:
         tools = render_tools(attack, canary)
         if not attack.turns:
             prompt, documents = render_attack(attack, canary)
+            files = render_attachments(attack.attachments, canary)
             start = time.perf_counter()
             try:
-                obs = normalize_observation(invoke_target(target, prompt, documents, [], tools))
+                obs = normalize_observation(invoke_target(target, prompt, documents, [], tools, files))
             except Exception as exc:  # the target is user code; any failure is a result, not a crash
                 return Trial(
                     succeeded=False,
@@ -68,7 +76,12 @@ class AttackRunner:
                 )
             latency = time.perf_counter() - start
             return self._trial_from_obs(
-                attack, config, canary, obs, "\n".join([prompt, *documents]), latency
+                attack,
+                config,
+                canary,
+                obs,
+                "\n".join([prompt, *documents, *attachments_text(files)]),
+                latency,
             )
 
         start = time.perf_counter()
@@ -79,8 +92,9 @@ class AttackRunner:
         try:
             for turn in attack.turns:
                 prompt, documents = render_turn(turn, canary)
-                all_inputs.extend([prompt, *documents])
-                obs = normalize_observation(invoke_target(target, prompt, documents, history, tools))
+                files = render_attachments(turn.attachments, canary)
+                all_inputs.extend([prompt, *documents, *attachments_text(files)])
+                obs = normalize_observation(invoke_target(target, prompt, documents, history, tools, files))
                 turn_outputs.append(obs.output)
                 last_tools = list(obs.tools_called)
                 history.append({"role": "user", "content": prompt})
@@ -173,6 +187,8 @@ class AttackRunner:
                 )
             if attack.requires_secrets and not config.secrets:
                 return AttackResult(attack=attack, skipped_reason="no 'secrets' configured")
+            if attack.has_attachments and not target_accepts_attachments(target):
+                return AttackResult(attack=attack, skipped_reason=SKIP_NO_ATTACHMENTS_SURFACE)
             if attack.requires_tools and not target_observes_tools(target):
                 return AttackResult(attack=attack, skipped_reason=SKIP_NO_TOOLS_SURFACE)
             result = AttackResult(attack=attack)

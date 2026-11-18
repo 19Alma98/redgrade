@@ -4,10 +4,10 @@
 exfiltration attempts, measures how often they work, and fails the pull request when security
 regresses. Self-hosted, one small package, no SaaS.
 
-> Status: **0.2 (alpha)**. 70 attacks across 9 packs (including L4 mutations on selected PI seeds and
-> task-utility probes), PI maturity score and level posture in the report, document simulation.
-> Adaptive attackers (and optional LLM-judge) are available via [`redgrade deep`](docs/deep-mode.md);
-> agent, tool and MCP attacks are on the [roadmap](ROADMAP.md) (0.3). Built to pair with
+> Status: **0.4 (alpha)**, with real file attachments in development for 0.5. 105 base attacks across
+> 15 packs (plus 30 derived L4 mutations), task-utility probes, PI maturity score and
+> level posture in the report. Adaptive attackers (and optional LLM-judge) are available via
+> [`redgrade deep`](docs/deep-mode.md), which needs `pip install 'redgrade[deep]'`. Built to pair with
 > [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
 
 ## The problem
@@ -31,10 +31,11 @@ uv run redgrade run -c examples/redgrade.hardened.yaml --trials 3       # exit c
 
 | | vulnerable app | hardened app |
 |---|---|---|
-| Overall ASR | 60% | 2% |
-| PI Maturity Score | 22/100 | 98/100 |
+| Overall ASR | 71% | 1% |
+| PI Maturity Score | 16/100 | 98/100 |
 | Highest resisted level | n/a | L5 |
 | Indirect prompt injection | 50% | 0% |
+| Malicious file attachments | 85% | 0% |
 | RAG poisoning | 60% | 0% |
 | Leaks (prompt, secrets, PII) | 100% | 0% |
 | Gate | **FAILED** | passed |
@@ -86,6 +87,36 @@ user and assistant messages are passed as `history` (third argument to a functio
 `{{history}}` in an HTTP body). If the target does not accept history, Redgrade prepends formatted
 prior turns to the current prompt.
 
+## Attack through uploaded files
+
+Most real apps let users attach a PDF, a DOCX or a web page, and the file is where the injection
+hides. Redgrade builds real files (standard library only, byte-for-byte reproducible) and uploads
+them to your endpoint, hiding the payload where a text extractor will find it but a person will not:
+
+| kind | where the payload can hide (`hide:`) |
+|---|---|
+| `pdf` | `plain`, `white_text`, `tiny_text` (1pt), `offpage`, `metadata` |
+| `docx` | `plain`, `white_text`, `tiny_text`, `vanish`, `comment`, `metadata` |
+| `html` | `plain`, `comment`, `display_none`, `white_text`, `meta`, `aria_label` |
+| `md` / `csv` / `json` / `txt` | HTML comment, link reference, comment cell, underscore field |
+| `png` | text chunk (EXIF-like metadata); no pixels, see limits |
+
+Tell the HTTP target how your endpoint receives files:
+
+```python
+# multipart/form-data: file in part "file", the rest of `body` becomes form fields
+HttpTarget("http://localhost:8000/ask", body={"question": "{{prompt}}"}, upload_field="file")
+
+# or base64 inside a JSON body: [{filename, content_type, data_base64}, ...]
+HttpTarget("http://localhost:8000/ask", body={"q": "{{prompt}}", "files": "{{attachments}}"})
+```
+
+In `redgrade.yaml` use `upload_field: file` under `target:`. A function target receives
+`attachments: list[Attachment]` (with `.data`, `.text`, `.metadata`) if it declares that parameter.
+Without an upload surface the 17 `file_attachments` attacks are **skipped and reported**, never
+counted as passed. `check()` adds the `ci.attachments` pipeline automatically when the target can
+receive files. Write your own in a pack: see [docs/writing-attacks.md](docs/writing-attacks.md#file-attachments).
+
 ## Use as a library
 
 Point Redgrade at your app's HTTP chat endpoint and assert the security gate in a normal test. The optional ``packs`` argument is additive (built-ins plus extra pack paths), like the CLI ``--pack`` flag.
@@ -114,7 +145,7 @@ assert report.passed, report.summary()
 # report = check_deep(target)
 ```
 
-`check()` runs the default CI pipelines only (no LiteLLM). `attack()` is the full escape hatch with explicit `families` / packs. The CLI command `redgrade check` is an alias of `redgrade run` for CI workflows; it still accepts `type: function` for offline demos, while the SDK `check()` requires an `HttpTarget`.
+`check()` runs the default CI pipelines only (no LiteLLM; install `redgrade[deep]` only for lab runs). `attack()` is the full escape hatch with explicit `families` / packs. The CLI command `redgrade check` is an alias of `redgrade run` for CI workflows; it still accepts `type: function` for offline demos, while the SDK `check()` requires an `HttpTarget`.
 
 ## What it covers today
 
@@ -130,6 +161,7 @@ and the report shows a coverage matrix so planned families never look "tested".
 | Unbounded consumption | LLM10 | 5 | shipped |
 | RAG and vector poisoning | LLM08 | 5 | shipped |
 | Multi-turn escalation | LLM01 | 11 | shipped |
+| Malicious file attachments (PDF, DOCX, HTML, CSV, JSON, image metadata) | LLM01 | 17 | shipped (0.5 dev) |
 | Task utility / over-refusal | utility | 7 | shipped |
 | Agent goal hijack and tool misuse | LLM06, ASI01 | 8 | shipped |
 | MCP: tool poisoning, rug pull, shadowing, confused deputy | LLM06 | 6 | shipped |
@@ -208,6 +240,9 @@ a live OpenGrade server (tracked in the roadmap).
 ## Limits, honestly
 
 - Results are probabilistic. Use enough `trials`; one green run proves little.
+- Attachment attacks cover text layers and metadata, not pixels: an image whose *visible* text is the
+  attack (OCR / vision models) is not generated yet. A PDF is only as vulnerable as the extractor
+  your app uses, so run these against the real pipeline, not a stub.
 - The built-in attacks are a starting set, not an exhaustive one. Add your own for your domain.
 - Redgrade does not replace a threat model or a human red team.
 - The demo app uses a simulated model, so its numbers describe the demo, not any real LLM.
@@ -215,7 +250,7 @@ a live OpenGrade server (tracked in the roadmap).
 ## Development
 
 ```bash
-uv sync --group dev --extra opengrade
+uv sync --group dev --extra opengrade --extra deep
 uv run pytest -q
 uv run ruff check . && uv run ruff format --check .
 ```

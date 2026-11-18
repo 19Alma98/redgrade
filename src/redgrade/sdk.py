@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from redgrade.constants import PIPELINE_CI_UTILITY
+from redgrade.constants import DEFAULT_CHECK_PIPELINES, PIPELINE_CI_ATTACHMENTS, PIPELINE_CI_UTILITY
 from redgrade.deep.meta import DeepMeta
 from redgrade.loader import load_attacks
 from redgrade.models import AttackResult, RunResult
@@ -208,10 +208,17 @@ def check(
     allowed_hosts: list[str] | None = None,
     max_output_chars: int | None = None,
 ) -> AttackReport:
-    """Run CI pipeline checks against an HTTP app endpoint."""
+    """Run CI pipeline checks against an HTTP app endpoint.
+
+    When ``pipelines`` is omitted and the target can receive files (``upload_field`` or an
+    ``{{attachments}}`` body template), ``ci.attachments`` runs as well.
+    """
     if not isinstance(target, HttpTarget):
         raise AttackError("check() requires an HttpTarget (HTTP endpoint of the app under test)")
 
+    if pipelines is None and target.accepts_attachments:
+        # The app has an upload surface: attack it through files too (opt-out via ``disable``).
+        pipelines = [*DEFAULT_CHECK_PIPELINES, PIPELINE_CI_ATTACHMENTS]
     specs = resolve_pipelines(pipelines, disable)
     ci_specs = [s for s in specs if not s.lab]
     if not ci_specs:

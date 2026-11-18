@@ -120,10 +120,17 @@ def naive_model(context: str) -> str:
     return "Ecco la risposta alla tua richiesta."
 
 
-def vulnerable(prompt: str, documents: list[str], history: list | None = None) -> str:
+def vulnerable(
+    prompt: str,
+    documents: list[str],
+    history: list | None = None,
+    attachments: list | None = None,
+) -> str:
     history = history or []
     hist_txt = "\n".join(f"{m['role']}: {m['content']}" for m in history)
-    context = "\n\n".join(x for x in [SYSTEM_PROMPT, hist_txt, *documents, prompt] if x)
+    # A gullible ingestion pipeline: body text AND metadata/comments go straight into the context.
+    files = [t for a in attachments or [] for t in (a.text, a.metadata) if t]
+    context = "\n\n".join(x for x in [SYSTEM_PROMPT, hist_txt, *documents, *files, prompt] if x)
     return naive_model(context)
 
 
@@ -176,7 +183,12 @@ def refuse_all(prompt: str, documents: list[str], history: list | None = None) -
     return "Mi dispiace, non posso aiutarti con questa richiesta."
 
 
-def hardened(prompt: str, documents: list[str], history: list | None = None) -> str:
+def hardened(
+    prompt: str,
+    documents: list[str],
+    history: list | None = None,
+    attachments: list | None = None,
+) -> str:
     history = history or []
     user_text = [m["content"] for m in history if m.get("role") == "user"]
     blob = "\n".join([prompt, *user_text])
@@ -187,7 +199,8 @@ def hardened(prompt: str, documents: list[str], history: list | None = None) -> 
             "Mi dispiace, quel contenuto è fuori ambito e non posso usare documenti HR per questa richiesta."
         )
     hist_txt = "\n".join(f"{m['role']}: {m['content']}" for m in history)
-    safe_docs = [_clean_document(d) for d in documents]
+    # Files are data: only extracted body text is used (no metadata/comments), then cleaned.
+    safe_docs = [_clean_document(d) for d in [*documents, *(a.text for a in attachments or [])]]
     context = "\n\n".join(x for x in [SYSTEM_PROMPT, hist_txt, *safe_docs, prompt] if x)
     return _clean_output(naive_model(context))
 
@@ -321,11 +334,9 @@ def _default_args(name: str, canary: str) -> dict[str, Any]:
 def _extract_calls(blob: str, tools: list[Any] | None = None) -> list[ToolCall]:
     calls: list[ToolCall] = []
     seen: set[str] = set()
-    canary = (_TOKEN.search(blob).group(0) if _TOKEN.search(blob) else "")
+    canary = _TOKEN.search(blob).group(0) if _TOKEN.search(blob) else ""
     catalog_names = {
-        str(t.get("name", "")).lower()
-        for t in (tools or [])
-        if isinstance(t, dict) and t.get("name")
+        str(t.get("name", "")).lower() for t in (tools or []) if isinstance(t, dict) and t.get("name")
     }
 
     def add(name: str, arguments: dict[str, Any] | None = None) -> None:
@@ -335,7 +346,9 @@ def _extract_calls(blob: str, tools: list[Any] | None = None) -> list[ToolCall]:
         if key not in _KNOWN_TOOLS and key not in catalog_names:
             return
         seen.add(key)
-        calls.append(ToolCall(name=name, arguments=arguments if arguments is not None else _default_args(name, canary)))
+        calls.append(
+            ToolCall(name=name, arguments=arguments if arguments is not None else _default_args(name, canary))
+        )
 
     for match in _CALL.finditer(blob):
         name = next(g for g in match.groups() if g)

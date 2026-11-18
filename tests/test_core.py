@@ -235,9 +235,9 @@ def test_builtin_packs_are_consistent():
         assert a.owasp
         if a.delivery == "document":
             if a.turns:
-                assert any(t.documents for t in a.turns), a.id
+                assert any(t.documents or t.attachments for t in a.turns), a.id
             else:
-                assert a.document or a.documents, a.id
+                assert a.document or a.documents or a.attachments, a.id
 
 
 def test_every_family_marked_available_has_attacks():

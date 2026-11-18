@@ -6,7 +6,8 @@ Two adapters ship with Redgrade:
 * ``module:function`` -- a Python function. It may take ``(prompt)`` or ``(prompt, documents)``
   (and optional ``history`` / ``tools``).
 * ``http`` -- any endpoint that takes JSON and returns JSON. Optional ``tools_path`` extracts
-  tool calls from the response into a ``TargetObservation``.
+  tool calls from the response into a ``TargetObservation``. Files are sent either as multipart
+  (``upload_field``) or as base64 JSON (``{{attachments}}`` in the body).
 """
 
 import importlib
@@ -21,11 +22,13 @@ from typing import Annotated, Literal, cast
 import httpx2
 from pydantic import BaseModel, Field
 
+from redgrade.attachments import Attachment
 from redgrade.constants import (
     DEFAULT_HTTP_RESPONSE_PATH,
     DEFAULT_HTTP_TIMEOUT,
     TARGET_TYPE_FUNCTION,
     TARGET_TYPE_HTTP,
+    TEMPLATE_ATTACHMENTS,
     TEMPLATE_DOCUMENTS,
     TEMPLATE_HISTORY,
     TEMPLATE_PROMPT,
@@ -54,6 +57,7 @@ class HttpTargetConfig(BaseModel):
     body: JsonValue = None
     response_path: str = DEFAULT_HTTP_RESPONSE_PATH
     tools_path: str | None = None
+    upload_field: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
     timeout: float = DEFAULT_HTTP_TIMEOUT
 
@@ -84,26 +88,45 @@ def target_observes_tools(target: object) -> bool:
     return _callable_accepts_tools(target)
 
 
+def target_accepts_attachments(target: object) -> bool:
+    """HTTP targets need ``upload_field`` or ``{{attachments}}``; callables an ``attachments`` param."""
+    if isinstance(target, HttpTarget):
+        return target.accepts_attachments
+    flag = getattr(target, "_redgrade_accepts_attachments", None)
+    if flag is not None:
+        return bool(flag)
+    try:
+        return "attachments" in inspect.signature(target).parameters  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+
+
 def invoke_target(
     target: Target,
     prompt: str,
     documents: list[str],
     history: list[HistoryMessage] | None = None,
     tools: list[JsonValue] | None = None,
+    attachments: list[Attachment] | None = None,
 ) -> TargetResult:
-    """Call a target with optional ``tools``, keeping 3-arg lambdas working."""
+    """Call a target with optional ``tools`` / ``attachments``, keeping 3-arg lambdas working."""
     history = history or []
     tools = tools or []
+    extra: dict[str, object] = {}
+    if attachments:
+        if not target_accepts_attachments(target):
+            raise TargetError("target has no attachments surface")
+        extra["attachments"] = attachments
     if isinstance(target, HttpTarget):
-        return target(prompt, documents, history, tools)
+        return target(prompt, documents, history, tools, **extra)  # type: ignore[arg-type]
     if getattr(target, "_redgrade_observes_tools", None) is not None:
-        return target(prompt, documents, history, tools)
+        return target(prompt, documents, history, tools, **extra)
     try:
         if "tools" in inspect.signature(target).parameters:
-            return target(prompt, documents, history, tools)
+            return target(prompt, documents, history, tools, **extra)
     except (TypeError, ValueError):
         pass
-    return target(prompt, documents, history)
+    return target(prompt, documents, history, **extra)
 
 
 def function_target(spec: str) -> Target:
@@ -124,9 +147,11 @@ def function_target(spec: str) -> Target:
 def wrap_function(func: Callable[..., object]) -> Target:
     params = list(inspect.signature(func).parameters.values())
     names = {p.name for p in params}
-    accepts_docs = any(p.kind is p.VAR_POSITIONAL for p in params) or len(params) >= 2
+    accepts_attachments = "attachments" in names
+    core = [p for p in params if p.name != "attachments"]
+    accepts_docs = any(p.kind is p.VAR_POSITIONAL for p in core) or len(core) >= 2
     accepts_docs = accepts_docs or any(p.name == "documents" for p in params)
-    accepts_history = "history" in names or len(params) >= 3
+    accepts_history = "history" in names or len(core) >= 3
     accepts_tools = "tools" in names
 
     def call(
@@ -134,12 +159,17 @@ def wrap_function(func: Callable[..., object]) -> Target:
         documents: list[str],
         history: list[HistoryMessage] | None = None,
         tools: list[JsonValue] | None = None,
+        attachments: list[Attachment] | None = None,
     ) -> TargetResult:
         history = history or []
         tools = tools or []
         kwargs: dict[str, object] = {}
         if accepts_tools:
             kwargs["tools"] = tools
+        if accepts_attachments:
+            kwargs["attachments"] = attachments or []
+        elif attachments:
+            raise TargetError("target function has no `attachments` parameter")
         if accepts_history:
             if accepts_docs:
                 result = func(prompt, documents, history, **kwargs)
@@ -157,6 +187,7 @@ def wrap_function(func: Callable[..., object]) -> Target:
         return result if isinstance(result, str) else str(result)
 
     call._redgrade_observes_tools = accepts_tools  # type: ignore[attr-defined]
+    call._redgrade_accepts_attachments = accepts_attachments  # type: ignore[attr-defined]
     return call
 
 
@@ -183,9 +214,12 @@ def _fill(
     documents: list[str],
     history: list[HistoryMessage],
     tools: list[JsonValue],
+    attachments: list[Attachment] | None = None,
 ) -> JsonValue:
-    """Replace ``{{prompt}}``, ``{{documents}}``, ``{{history}}``, and ``{{tools}}``."""
+    """Replace ``{{prompt}}``, ``{{documents}}``, ``{{history}}``, ``{{tools}}``, ``{{attachments}}``."""
     if isinstance(node, str):
+        if node == TEMPLATE_ATTACHMENTS:
+            return [cast(JsonValue, a.as_json()) for a in attachments or []]
         if node == TEMPLATE_DOCUMENTS:
             return list(documents)
         if node == TEMPLATE_HISTORY:
@@ -199,9 +233,9 @@ def _fill(
             .replace(TEMPLATE_TOOLS, json.dumps(tools, ensure_ascii=False))
         )
     if isinstance(node, list):
-        return [_fill(x, prompt, documents, history, tools) for x in node]
+        return [_fill(x, prompt, documents, history, tools, attachments) for x in node]
     if isinstance(node, dict):
-        return {str(k): _fill(v, prompt, documents, history, tools) for k, v in node.items()}
+        return {str(k): _fill(v, prompt, documents, history, tools, attachments) for k, v in node.items()}
     return node
 
 
@@ -266,6 +300,7 @@ class HttpTarget:
         body: JsonValue = None,
         response_path: str = DEFAULT_HTTP_RESPONSE_PATH,
         tools_path: str | None = None,
+        upload_field: str | None = None,
         headers: dict[str, str] | None = None,
         timeout: float = DEFAULT_HTTP_TIMEOUT,
         client: httpx2.Client | None = None,
@@ -274,8 +309,29 @@ class HttpTarget:
         self.body: JsonValue = {"prompt": TEMPLATE_PROMPT} if body is None else body
         self.response_path = response_path
         self.tools_path = tools_path
+        self.upload_field = upload_field
+        if upload_field and not isinstance(self.body, dict):
+            raise TargetError("upload_field needs a body that is a mapping (it becomes the form fields)")
         self.headers = {k: _expand_env(v) for k, v in (headers or {}).items()}
         self._client = client or httpx2.Client(timeout=timeout)
+
+    @property
+    def accepts_attachments(self) -> bool:
+        return bool(self.upload_field) or _contains_template(self.body, TEMPLATE_ATTACHMENTS)
+
+    def _send(self, payload: JsonValue, attachments: list[Attachment]) -> httpx2.Response:
+        if not self.upload_field:
+            return self._client.post(self.url, json=payload, headers=self.headers)
+        # Always multipart when ``upload_field`` is set, so an endpoint that only reads
+        # multipart also works for attacks without files. ``(None, value)`` is a plain form field.
+        parts: list[tuple[str, tuple[str | None, bytes | str, str] | tuple[None, str]]] = []
+        for key, value in cast(dict[str, JsonValue], payload).items():
+            text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            parts.append((key, (None, text)))
+        for att in attachments:
+            parts.append((self.upload_field, (att.filename, att.data, att.content_type)))
+        headers = {k: v for k, v in self.headers.items() if k.lower() != "content-type"}
+        return self._client.post(self.url, files=parts, headers=headers)
 
     def __call__(
         self,
@@ -283,14 +339,16 @@ class HttpTarget:
         documents: list[str],
         history: list[HistoryMessage] | None = None,
         tools: list[JsonValue] | None = None,
+        attachments: list[Attachment] | None = None,
     ) -> TargetObservation:
         history = history or []
         tools = tools or []
+        attachments = attachments or []
         if history and not _contains_template(self.body, TEMPLATE_HISTORY):
             prompt = format_history(history) + "\n\n" + prompt
-        payload = _fill(self.body, prompt, documents, history, tools)
+        payload = _fill(self.body, prompt, documents, history, tools, attachments)
         try:
-            response = self._client.post(self.url, json=payload, headers=self.headers)
+            response = self._send(payload, attachments)
             response.raise_for_status()
             data = response.json()
             output = str(_dig(data, self.response_path))
@@ -325,6 +383,7 @@ class TargetFactory:
             body=parsed.body,
             response_path=parsed.response_path,
             tools_path=parsed.tools_path,
+            upload_field=parsed.upload_field,
             headers=parsed.headers,
             timeout=parsed.timeout,
         )

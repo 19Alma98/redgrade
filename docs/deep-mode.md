@@ -10,11 +10,14 @@ mutations only; they never call LiteLLM or your provider.
 
 ## Install
 
-LiteLLM is a core dependency; a normal install is enough:
+LiteLLM is an optional extra, so CI installs stay light. Install it where you run deep mode:
 
 ```bash
-uv sync
+pip install 'redgrade[deep]'      # or: uv sync --extra deep
 ```
+
+Without it, `redgrade deep` / `check_deep()` fail early with a clear message; `run`, `check` and
+`attack()` never import it.
 
 ## When to use `run` vs `deep`
 

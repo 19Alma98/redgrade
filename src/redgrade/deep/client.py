@@ -19,7 +19,12 @@ class LlmClient:
         if completion is not None:
             self._completion = completion
         else:
-            from litellm import completion as litellm_completion
+            try:
+                from litellm import completion as litellm_completion
+            except ImportError as exc:
+                raise DeepError(
+                    "deep mode needs LiteLLM: pip install 'redgrade[deep]' (static CI runs do not need it)"
+                ) from exc
 
             self._completion = litellm_completion
 
