@@ -37,8 +37,9 @@ Applications (2026).
 - [x] Adaptive / LLM-generated attack variants via `redgrade deep` (LiteLLM PAIR-lite)—not default CI
 - [ ] TAP / Crescendo-style multi-stage adaptivity beyond PAIR-lite
 - [x] LLM-judge detector for verdicts a regex cannot give (deep-only; CI stays deterministic)
-- [ ] Per-attack baseline compare: "new successes vs `main`" as a gate, like OpenGrade does for quality
-- [ ] HTML report
+- [x] Per-attack baseline compare: "new successes vs `main`" as a gate (`redgrade baseline update`, `policy.baseline`)
+- [x] HTML, SARIF and JUnit reports; report JSON `schema_version: 2`
+- [x] Scorecard: per-family score, 95% ranges, letter grade, `min_security_score` / `min_family_score` gates
 - [ ] Verify the OpenGrade adapter end to end against a running OpenGrade server
 - [ ] Vulnerable reference apps for each family (the demo app is a simulation, not a real model)
 
