@@ -64,3 +64,27 @@ def test_cli_writes_sarif_and_junit(tmp_path):
     main(["run", "-c", str(cfg), "--sarif", str(s), "--junit", str(j), "--family", "prompt_injection_direct"])
     assert json.loads(s.read_text())["runs"][0]["results"]
     assert ET.parse(j).getroot().tag == "testsuites"
+
+
+def test_html_is_self_contained_and_escaped():
+    from redgrade.formats.html import to_html
+    from redgrade.policy import Check
+
+    atk = make_attack("A-<1>", severity="high")
+    run = make_run(make_result(atk, 1), make_result(make_attack("A-2", level=3), 0))
+    html = to_html(run, [Check(name="asr.overall", value=0.1, limit=0.0, passed=False)], version="1")
+    assert "<script" not in html and "http://" not in html and "https://" not in html
+    assert "A-&lt;1&gt;" in html and "A-<1>" not in html
+    assert "FAILED" in html and "out0" not in html
+    assert "L3" in html
+
+
+def test_cli_writes_html(tmp_path):
+    cfg = tmp_path / "r.yaml"
+    cfg.write_text(
+        "target: {type: function, path: 'examples.demo_app:hardened'}\nrun: {trials: 1}\n"
+        "policy: {max_asr: 1.0, max_asr_by_severity: {}}\n"
+    )
+    out = tmp_path / "r.html"
+    main(["run", "-c", str(cfg), "--html", str(out), "--family", "prompt_injection_direct"])
+    assert out.read_text().startswith("<!doctype html>")

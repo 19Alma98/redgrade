@@ -25,7 +25,7 @@ jobs:
         run: >
           uv run redgrade run -c redgrade.yaml
           --report redgrade-report.md --json redgrade.json
-          --sarif redgrade.sarif --junit redgrade-junit.xml
+          --sarif redgrade.sarif --junit redgrade-junit.xml --html redgrade.html
       - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
@@ -43,3 +43,4 @@ jobs:
             redgrade.json
             redgrade.sarif
             redgrade-junit.xml
+            redgrade.html

@@ -121,6 +121,19 @@ class AttackReport(BaseModel):
 
         return to_junit(self.run, self.checks, include_output=include_output)
 
+    def to_html(self, *, include_output: bool = False) -> str:
+        """Self-contained HTML report (no scripts or external requests)."""
+        from redgrade import __version__
+        from redgrade.formats.html import to_html
+
+        return to_html(
+            self.run,
+            self.checks,
+            version=__version__,
+            comparison=self.baseline,
+            include_output=include_output,
+        )
+
     def to_baseline(self) -> Baseline:
         """Snapshot of this run, to commit as the reference for later comparisons."""
         return Baseline.from_run(self.run)
