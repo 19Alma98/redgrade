@@ -1,6 +1,7 @@
 """Redgrade: red-team your LLM app in CI."""
 
 from redgrade.attachments import Attachment, AttachmentSpec
+from redgrade.baseline import Baseline, BaselinePolicy, Waiver
 from redgrade.loader import load_attacks
 from redgrade.models import Attack, AttackResult, RunResult, TargetObservation, ToolCall, Trial
 from redgrade.policy import Policy, evaluate_policy
@@ -17,6 +18,8 @@ __all__ = [
     "AttackError",
     "AttackReport",
     "AttackResult",
+    "Baseline",
+    "BaselinePolicy",
     "HttpTarget",
     "Policy",
     "RunConfig",
@@ -24,6 +27,7 @@ __all__ = [
     "TargetObservation",
     "ToolCall",
     "Trial",
+    "Waiver",
     "attack",
     "check",
     "check_deep",

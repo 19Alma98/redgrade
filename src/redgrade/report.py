@@ -7,6 +7,7 @@ from redgrade.constants import (
     FAMILY_STATUS_AVAILABLE,
     FAMILY_TASK_UTILITY,
     PI_LEVEL_WEIGHTS,
+    REPORT_SCHEMA_VERSION,
     REPORT_SNIPPET_CHARS,
     SEVERITY_CRITICAL,
     SEVERITY_HIGH,
@@ -102,11 +103,16 @@ class ReportBuilder:
                 "trials": len(r.trials),
                 "errors": r.errors,
                 "asr": r.asr,
+                "level": r.attack.level,
+                "valid": len(r.valid_trials),
+                "successes": r.successes,
+                "flaky": r.flaky,
             }
             for r in run.results
         ]
         posture = self._score_posture(run, policy)
         return {
+            "schema_version": REPORT_SCHEMA_VERSION,
             "passed": passed(checks),
             "trials_per_attack": run.trials_per_attack,
             "checks": check_rows,
@@ -137,6 +143,8 @@ class ReportBuilder:
                 lines.append(f"| {c.name} | {int(c.value)} attack(s) ran | >= 1 | {mark} |")
             elif c.name.startswith("utility."):
                 lines.append(f"| {c.name} | {_pct(c.value)} | >= {_pct(c.limit)} | {mark} |")
+            elif c.name.startswith("baseline."):
+                lines.append(f"| {c.name} | {int(c.value)} | <= {int(c.limit)} | {mark} |")
             elif c.name in ("pi.score", "pi.resisted_level"):
                 lines.append(f"| {c.name} | {c.value} | >= {c.limit} | {mark} |")
             else:

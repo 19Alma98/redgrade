@@ -5,6 +5,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from redgrade.baseline import BaselineComparison, BaselinePolicy
 from redgrade.constants import (
     DEFAULT_CRITICAL_ASR_LIMIT,
     DEFAULT_MAX_ASR,
@@ -35,6 +36,8 @@ class Policy(BaseModel):
     ``min_utility``             minimum task-utility rate when utility probes ran (higher is
                                 better). Default ``1.0``.
     ``require_utility``         if True, fail when no ``task_utility`` probes executed
+    ``baseline``                per-attack regression gate against a recorded baseline
+    (see ``redgrade.baseline.BaselinePolicy``)
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -49,6 +52,7 @@ class Policy(BaseModel):
     max_asr_by_level: dict[int, float] = Field(default_factory=dict)
     min_utility: float = DEFAULT_MIN_UTILITY
     require_utility: bool = False
+    baseline: BaselinePolicy | None = None
 
     @field_validator("min_pi_score")
     @classmethod
@@ -118,7 +122,9 @@ def _rate(successes: int, total: int) -> float:
 class PolicyEvaluator:
     """Turn a ``RunResult`` into gate checks."""
 
-    def evaluate(self, run: RunResult, policy: Policy) -> list[Check]:
+    def evaluate(
+        self, run: RunResult, policy: Policy, comparison: BaselineComparison | None = None
+    ) -> list[Check]:
         checks: list[Check] = []
         executed = run.executed
         attacks = attack_results(run)
@@ -250,11 +256,31 @@ class PolicyEvaluator:
                 )
             )
 
+        if comparison is not None and policy.baseline is not None:
+            bp = policy.baseline
+            n_reg = len(comparison.regressions)
+            checks.append(
+                Check(
+                    name="baseline.regressions",
+                    value=float(n_reg),
+                    limit=float(bp.max_regressions),
+                    passed=n_reg <= bp.max_regressions,
+                )
+            )
+            if bp.fail_on_worsened:
+                n = len(comparison.worsened)
+                checks.append(Check(name="baseline.worsened", value=float(n), limit=0.0, passed=n == 0))
+            if bp.fail_on_new:
+                n = len(comparison.new_failures)
+                checks.append(Check(name="baseline.new_successes", value=float(n), limit=0.0, passed=n == 0))
+
         return checks
 
 
-def evaluate_policy(run: RunResult, policy: Policy) -> list[Check]:
-    return PolicyEvaluator().evaluate(run, policy)
+def evaluate_policy(
+    run: RunResult, policy: Policy, comparison: BaselineComparison | None = None
+) -> list[Check]:
+    return PolicyEvaluator().evaluate(run, policy, comparison)
 
 
 def passed(checks: list[Check]) -> bool:

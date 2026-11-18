@@ -41,6 +41,10 @@ class AttackSummary(TypedDict):
     trials: int
     errors: int
     asr: float | None
+    level: int | None
+    valid: int
+    successes: int
+    flaky: bool
 
 
 class CheckDict(TypedDict):
@@ -59,6 +63,7 @@ class PiPostureDict(TypedDict):
 
 
 class ReportDictRequired(TypedDict):
+    schema_version: int
     passed: bool
     trials_per_attack: int
     checks: list[CheckDict]
@@ -70,6 +75,7 @@ class ReportDictRequired(TypedDict):
 
 class ReportDict(ReportDictRequired, total=False):
     deep_meta: dict[str, JsonValue]
+    baseline: dict[str, JsonValue]
 
 
 class OpenGradeRow(Protocol):

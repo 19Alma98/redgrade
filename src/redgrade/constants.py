@@ -132,3 +132,7 @@ DEFAULT_ATTACKER_API_BASE: Final = "http://127.0.0.1:11434"
 STRATEGY_PAIR: Final = "pair"
 STRATEGY_CRESCENDO: Final = "crescendo"
 STRATEGY_TAP: Final = "tap"
+
+# --- report ---------------------------------------------------------------------------------
+
+REPORT_SCHEMA_VERSION: Final = 2

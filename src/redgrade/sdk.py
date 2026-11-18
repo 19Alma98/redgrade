@@ -1,11 +1,21 @@
 """Public SDK: attack an HTTP app endpoint and return an AttackReport."""
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from redgrade.baseline import (
+    DEFAULT_BASELINE_PATH,
+    Baseline,
+    BaselineComparison,
+    BaselineError,
+    BaselinePolicy,
+    baseline_markdown,
+    compare,
+)
 from redgrade.constants import DEFAULT_CHECK_PIPELINES, PIPELINE_CI_ATTACHMENTS, PIPELINE_CI_UTILITY
 from redgrade.deep.meta import DeepMeta
 from redgrade.loader import load_attacks
@@ -38,6 +48,7 @@ class AttackReport(BaseModel):
     deep_meta: DeepMeta | None = None
     mode: Literal["ci", "deep"] | None = None
     pipelines_run: list[str] = Field(default_factory=list)
+    baseline: BaselineComparison | None = None
 
     def summary(self) -> str:
         lines = [
@@ -56,6 +67,13 @@ class AttackReport(BaseModel):
                     lines.append(f"  - {c.name}: value={c.value:.4f} min={c.limit:.4f}")
                 else:
                     lines.append(f"  - {c.name}: value={c.value:.4f} limit={c.limit:.4f}")
+        if self.baseline is not None:
+            reg = self.baseline.regressions
+            lines.append(f"Baseline: {len(reg)} regression(s), {len(self.baseline.improved)} improved")
+            for d in reg[:10]:
+                lines.append(
+                    f"  - regression {d.id}: {d.base_bad}/{d.base_valid} -> {d.now_bad}/{d.now_valid}"
+                )
         bad = [r for r in attack_results(self.run) if r.successes > 0]
         if bad:
             lines.append("Successful attacks:")
@@ -67,6 +85,8 @@ class AttackReport(BaseModel):
 
     def to_markdown(self) -> str:
         md = to_markdown(self.run, self.checks, self.policy)
+        if self.baseline is not None:
+            md = md.rstrip("\n") + "\n" + "\n".join(baseline_markdown(self.baseline)) + "\n"
         if self.deep_meta is not None:
             md = md + "\n\n" + "\n".join(_deep_posture_lines(self.deep_meta))
         return md
@@ -75,7 +95,21 @@ class AttackReport(BaseModel):
         data = to_dict(self.run, self.checks, self.policy)
         if self.deep_meta is not None:
             data["deep_meta"] = self.deep_meta.model_dump()
+        if self.baseline is not None:
+            data["baseline"] = self.baseline.model_dump(mode="json")
         return data
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
+
+    def to_baseline(self) -> Baseline:
+        """Snapshot of this run, to commit as the reference for later comparisons."""
+        return Baseline.from_run(self.run)
+
+    def save_baseline(self, path: str | Path | None = None) -> Path:
+        out = Path(path or (self.policy.baseline.path if self.policy.baseline else DEFAULT_BASELINE_PATH))
+        self.to_baseline().save(out)
+        return out
 
     def export_winning_seeds(self, path: str | Path) -> int:
         """Write ``deep_meta.winning_seeds`` to an attack pack YAML; 0 if none."""
@@ -141,16 +175,36 @@ def run_pipeline(
     packs: list[str] | None = None,
     run_config: RunConfig | None = None,
     on_result: Callable[[AttackResult], None] | None = None,
+    baseline: Baseline | str | Path | None = None,
 ) -> AttackReport:
-    """Shared runner for SDK and CLI. Accepts any Target (including function wrappers)."""
+    """Shared runner for SDK and CLI. Accepts any Target (including function wrappers).
+
+    ``baseline`` (a ``Baseline`` or a path) enables the per-attack regression gate; without it,
+    ``policy.baseline.path`` is used when the policy configures one.
+    """
     policy = policy or Policy()
+    if baseline is not None and policy.baseline is None:
+        path = baseline if isinstance(baseline, (str, Path)) else DEFAULT_BASELINE_PATH
+        policy = policy.model_copy(update={"baseline": BaselinePolicy(path=str(path))})
+    elif isinstance(baseline, (str, Path)) and policy.baseline is not None:
+        policy = policy.model_copy(
+            update={"baseline": policy.baseline.model_copy(update={"path": str(baseline)})}
+        )
+    loaded: Baseline | None = None
+    if policy.baseline is not None:
+        try:
+            loaded = baseline if isinstance(baseline, Baseline) else Baseline.load(policy.baseline.path)
+        except BaselineError as exc:
+            raise AttackError(str(exc)) from exc
     run_config = run_config or RunConfig()
     attacks = load_attacks(extra_packs=packs, families=families)
     if not attacks:
         raise AttackError("no attacks selected")
     run = run_attacks(attacks, target, run_config, on_result=on_result)
-    checks = evaluate_policy(run, policy)
-    return _build_report(run, checks, policy)
+    comparison = compare(run, loaded, policy.baseline) if loaded and policy.baseline else None
+    checks = evaluate_policy(run, policy, comparison)
+    report = _build_report(run, checks, policy)
+    return report.model_copy(update={"baseline": comparison}) if comparison else report
 
 
 def attack(
@@ -164,6 +218,7 @@ def attack(
     secrets: list[str] | None = None,
     allowed_hosts: list[str] | None = None,
     max_output_chars: int | None = None,
+    baseline: Baseline | str | Path | None = None,
 ) -> AttackReport:
     """Run attacks against an HTTP app endpoint and return an ``AttackReport``.
 
@@ -192,6 +247,7 @@ def attack(
         families=families,
         packs=packs,
         run_config=run_config,
+        baseline=baseline,
     )
 
 
@@ -207,6 +263,7 @@ def check(
     secrets: list[str] | None = None,
     allowed_hosts: list[str] | None = None,
     max_output_chars: int | None = None,
+    baseline: Baseline | str | Path | None = None,
 ) -> AttackReport:
     """Run CI pipeline checks against an HTTP app endpoint.
 
@@ -249,6 +306,7 @@ def check(
         families=families,
         packs=extra_packs,
         run_config=run_config,
+        baseline=baseline,
     )
     return report.model_copy(
         update={"mode": "ci", "pipelines_run": [s.id for s in ci_specs]},
