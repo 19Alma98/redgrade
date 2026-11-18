@@ -4,6 +4,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
+from redgrade.attachments import AttachmentSpec
 from redgrade.constants import (
     DELIVERY_DIRECT,
     DETECT_ON_LAST,
@@ -54,6 +55,7 @@ class AttackTurn(BaseModel):
 
     prompt: str
     documents: tuple[str, ...] = ()
+    attachments: tuple[AttachmentSpec, ...] = ()
 
 
 class Attack(BaseModel):
@@ -65,6 +67,8 @@ class Attack(BaseModel):
 
     ``prompt``, ``document``, and each turn's templates use ``{CANARY}`` (per-trial token) and
     ``{b64:TEXT}`` / ``{rot13:TEXT}`` encodings after canary substitution.
+
+    ``attachments`` are real files (PDF, DOCX, HTML, ...) built per trial; see ``redgrade.attachments``.
 
     ``delivery`` is ``direct`` (the prompt is sent as the user message) or ``document`` (the
     prompt is a harmless user question and ``document`` is a poisoned document the app reads,
@@ -83,6 +87,7 @@ class Attack(BaseModel):
     delivery: Delivery = DELIVERY_DIRECT
     document: str | None = None
     documents: tuple[str, ...] = ()
+    attachments: tuple[AttachmentSpec, ...] = ()
     turns: tuple[AttackTurn, ...] = ()
     detect_on: DetectOn = DETECT_ON_LAST
     detector_args: DetectorArgs = Field(default_factory=dict)
@@ -94,6 +99,10 @@ class Attack(BaseModel):
     mutations: tuple[str, ...] = ()
     mutate_scope: MutateScope = MUTATE_SCOPE_ALL
     description: str = ""
+
+    @property
+    def has_attachments(self) -> bool:
+        return bool(self.attachments) or any(t.attachments for t in self.turns)
 
     @field_validator("level")
     @classmethod

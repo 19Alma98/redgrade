@@ -3,7 +3,6 @@
 import json
 
 import httpx2
-import pytest
 
 from examples.demo_app import hardened_agent, vulnerable_agent
 from redgrade.detectors import DetectorContext, get_detector

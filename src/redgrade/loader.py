@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from redgrade.attachments import AttachmentSpec
 from redgrade.constants import (
     DEFAULT_SEVERITY,
     DELIVERY_DIRECT,
@@ -42,6 +43,24 @@ class PackLoader:
                 raise PackError(f"{origin}: {attack_id}: mutations must be a list")
             extra["mutations"] = tuple(str(x) for x in mut)
         return extra
+
+    def _parse_attachments(
+        self, raw: dict[str, object], origin: str, attack_id: str
+    ) -> tuple[AttachmentSpec, ...]:
+        items = raw.get("attachments")
+        if items is None:
+            return ()
+        if not isinstance(items, list):
+            raise PackError(f"{origin}: {attack_id}: attachments must be a list")
+        specs: list[AttachmentSpec] = []
+        for item in items:
+            if not isinstance(item, dict):
+                raise PackError(f"{origin}: {attack_id}: each attachment must be a mapping")
+            try:
+                specs.append(AttachmentSpec.model_validate({k: str(v) for k, v in item.items()}))
+            except ValidationError as exc:
+                raise PackError(f"{origin}: {attack_id}: {exc}") from exc
+        return tuple(specs)
 
     def _parse_tools(self, raw: dict[str, object], origin: str, attack_id: str) -> tuple[object, ...]:
         tools = raw.get("tools")
@@ -101,8 +120,11 @@ class PackLoader:
                         if not isinstance(extra, list):
                             raise PackError(f"{origin}: {raw.get('id')}: turn documents must be a list")
                         turn_docs.extend(str(x) for x in extra)
-                        any_docs = any_docs or bool(turn_docs)
-                        turns.append({"prompt": str(t["prompt"]), "documents": turn_docs})
+                        turn_files = self._parse_attachments(t, origin, str(raw.get("id", "?")))
+                        any_docs = any_docs or bool(turn_docs) or bool(turn_files)
+                        turns.append(
+                            {"prompt": str(t["prompt"]), "documents": turn_docs, "attachments": turn_files}
+                        )
                     detect_on = str(raw.get("detect_on", DETECT_ON_LAST))
                     if detect_on not in (DETECT_ON_LAST, DETECT_ON_ANY):
                         raise PackError(
@@ -139,7 +161,8 @@ class PackLoader:
                     if extra and not isinstance(extra, list):
                         raise PackError(f"{origin}: {raw.get('id')}: documents must be a list")
                     docs.extend(str(x) for x in extra)
-                    delivery = DELIVERY_DOCUMENT if docs else DELIVERY_DIRECT
+                    files = self._parse_attachments(raw, origin, str(raw.get("id", "?")))
+                    delivery = DELIVERY_DOCUMENT if docs or files else DELIVERY_DIRECT
                     document = str(raw["document"]) if raw.get("document") is not None else None
                     extra_docs = tuple(str(x) for x in extra)
                     attack = Attack.model_validate(
@@ -154,6 +177,7 @@ class PackLoader:
                             "delivery": delivery,
                             "document": document,
                             "documents": extra_docs,
+                            "attachments": files,
                             "detector_args": detector_args,
                             "requires_secrets": bool(raw.get("requires_secrets", False)),
                             "requires_tools": bool(raw.get("requires_tools", False)),

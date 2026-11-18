@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict
 
 from redgrade.constants import (
     DEFAULT_CHECK_PIPELINES,
+    PIPELINE_CI_ATTACHMENTS,
     PIPELINE_CI_DISCLOSURE,
     PIPELINE_CI_PI,
     PIPELINE_CI_UTILITY,
@@ -11,6 +12,7 @@ from redgrade.constants import (
 # Re-export for callers / tests that import pipeline ids from this module.
 __all__ = [
     "DEFAULT_CHECK_PIPELINES",
+    "PIPELINE_CI_ATTACHMENTS",
     "PIPELINE_CI_DISCLOSURE",
     "PIPELINE_CI_PI",
     "PIPELINE_CI_UTILITY",
@@ -40,6 +42,10 @@ _REGISTRY: dict[str, PipelineSpec] = {
     PIPELINE_CI_DISCLOSURE: PipelineSpec(
         id=PIPELINE_CI_DISCLOSURE,
         families=("info_disclosure",),
+    ),
+    PIPELINE_CI_ATTACHMENTS: PipelineSpec(
+        id=PIPELINE_CI_ATTACHMENTS,
+        families=("file_attachments",),
     ),
     PIPELINE_CI_UTILITY: PipelineSpec(
         id=PIPELINE_CI_UTILITY,

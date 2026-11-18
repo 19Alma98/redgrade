@@ -1928,16 +1928,17 @@ wheels = [
 
 [[package]]
 name = "redgrade"
-version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx2" },
-    { name = "litellm" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
+deep = [
+    { name = "litellm" },
+]
 opengrade = [
     { name = "opengrade-ai" },
 ]
@@ -1953,12 +1954,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "httpx2" },
-    { name = "litellm", specifier = ">=1.109.1" },
+    { name = "litellm", marker = "extra == 'deep'", specifier = ">=1.109.1" },
     { name = "opengrade-ai", marker = "extra == 'opengrade'", specifier = ">=0.1" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
-provides-extras = ["opengrade"]
+provides-extras = ["deep", "opengrade"]
 
 [package.metadata.requires-dev]
 dev = [

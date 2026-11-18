@@ -69,6 +69,11 @@ TEMPLATE_PROMPT: Final = "{{prompt}}"
 TEMPLATE_DOCUMENTS: Final = "{{documents}}"
 TEMPLATE_HISTORY: Final = "{{history}}"
 TEMPLATE_TOOLS: Final = "{{tools}}"
+TEMPLATE_ATTACHMENTS: Final = "{{attachments}}"
+SKIP_NO_ATTACHMENTS_SURFACE: Final = (
+    "no attachments surface (set upload_field or {{attachments}} on HTTP targets, "
+    "or an `attachments` parameter on function targets)"
+)
 SKIP_NO_TOOLS_SURFACE: Final = "no tools observation surface (set tools_path on HTTP targets)"
 
 # --- multi-turn detection -------------------------------------------------------------------
@@ -89,7 +94,7 @@ OPENGRADE_SKIPPED_LABEL: Final = "SKIPPED"
 # --- prompt injection scoring / mutations ---------------------------------------------------
 
 PI_SCORE_FAMILIES: Final[frozenset[str]] = frozenset(
-    {"prompt_injection_direct", "prompt_injection_indirect", "multi_turn"}
+    {"prompt_injection_direct", "prompt_injection_indirect", "multi_turn", "file_attachments"}
 )
 PI_SCORE_DETECTORS: Final[frozenset[str]] = frozenset({DETECTOR_CANARY})
 PI_LEVEL_WEIGHTS: Final[dict[int, int]] = {1: 10, 2: 15, 3: 20, 4: 25, 5: 30}
@@ -114,6 +119,7 @@ MUTATE_SCOPE_ALL: Final[Literal["all"]] = "all"
 PIPELINE_CI_PI: Final = "ci.prompt_injection"
 PIPELINE_CI_DISCLOSURE: Final = "ci.disclosure"
 PIPELINE_CI_UTILITY: Final = "ci.utility"
+PIPELINE_CI_ATTACHMENTS: Final = "ci.attachments"
 PIPELINE_LAB_ADAPTIVE: Final = "lab.adaptive_pi"
 DEFAULT_CHECK_PIPELINES: Final[tuple[str, ...]] = (
     PIPELINE_CI_PI,

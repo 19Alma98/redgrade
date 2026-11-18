@@ -19,6 +19,8 @@ Applications (2026).
 | 0.2 | PI maturity: L1–L5 levels, deterministic L4 mutations, PI score in report | LLM01 | shipped |
 | 0.2 | Task utility / over-refusal probes + `min_utility` gate | utility | shipped |
 | 0.2 | Deep-only `llm_judge` detector | LLM01 | shipped |
+| 0.5 | Real file attachments: PDF / DOCX / HTML / MD / CSV / JSON / PNG-metadata builders, hide techniques, multipart + base64 delivery | LLM01 | shipped (17 attacks) |
+| later | Visible-text images (OCR / vision injection), `.xlsx`, `.pptx`, EPUB, archives | LLM01 | planned |
 | later | More output handling: XSS payloads, SQL and shell injection through model output | LLM05 | planned |
 | later | Index / retrieval hooks for custom vector stores | LLM08 | planned |
 | 0.3 | Agents: goal hijack, unauthorized tool use, manipulated parameters, SSRF/path traversal via tools | LLM06, ASI01 | shipped (8 attacks) |
@@ -39,6 +41,8 @@ Applications (2026).
 - [ ] HTML report
 - [ ] Verify the OpenGrade adapter end to end against a running OpenGrade server
 - [ ] Vulnerable reference apps for each family (the demo app is a simulation, not a real model)
+
+- [x] `litellm` moved to the optional `redgrade[deep]` extra; one version source (`__init__.py`)
 
 ## Non-goals
 

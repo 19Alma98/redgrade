@@ -40,6 +40,13 @@ FAMILIES: tuple[Family, ...] = (
         target_release="0.1",
     ),
     Family(
+        id="file_attachments",
+        name="Malicious file attachments (PDF, DOCX, HTML, images)",
+        owasp="LLM01",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.5",
+    ),
+    Family(
         id="info_disclosure",
         name="System prompt / secret / PII leakage",
         owasp="LLM02, LLM07",

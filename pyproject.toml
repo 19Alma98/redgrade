@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "redgrade"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Red-team your LLM app in CI: attack it, measure the attack success rate, fail the pull request on regressions."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -22,17 +22,21 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2",
     "httpx2",
-    "litellm>=1.109.1",
 ]
 
 [project.optional-dependencies]
 opengrade = ["opengrade-ai>=0.1"]
+# Lab-only: adaptive attacker / LLM judge (`redgrade deep`, `check_deep`). CI does not need it.
+deep = ["litellm>=1.109.1"]
 
 [project.scripts]
 redgrade = "redgrade.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "types-PyYAML>=6.0"]
+
+[tool.hatch.version]
+path = "src/redgrade/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/redgrade"]
