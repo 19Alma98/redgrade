@@ -1,4 +1,4 @@
-"""Command line: ``redgrade init | list | run | check | export-dataset | deep``.
+"""Command line: ``redgrade init | list | run | check | baseline | export-dataset | deep``.
 
 Exit codes: 0 gate passed, 1 gate failed, 2 usage or configuration error.
 """
@@ -10,13 +10,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from redgrade import __version__
+from redgrade.baseline import DEFAULT_BASELINE_PATH, BaselineError
 from redgrade.config import EXAMPLE, ConfigError, load_config
 from redgrade.constants import DEFAULT_CONFIG_PATH, FAMILY_STATUS_AVAILABLE, FAMILY_TASK_UTILITY
 from redgrade.families import FAMILIES
 from redgrade.loader import PackError, load_attacks
 from redgrade.models import AttackResult
 from redgrade.render import render_attack, render_turns
-from redgrade.report import to_json
 from redgrade.runner import new_canary
 from redgrade.sdk import AttackError, run_pipeline
 from redgrade.targets import TargetError, build_target
@@ -90,6 +90,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             packs=config.packs or None,
             run_config=config.run,
             on_result=_progress,
+            baseline=args.baseline,
         )
     except AttackError as exc:
         print(str(exc), file=sys.stderr)
@@ -105,8 +106,48 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.report:
         Path(args.report).write_text(md, encoding="utf-8")
     if args.json:
-        Path(args.json).write_text(to_json(report.run, report.checks, report.policy), encoding="utf-8")
+        Path(args.json).write_text(report.to_json(), encoding="utf-8")
+    if args.sarif:
+        sarif = report.to_sarif(location_uri=args.config, include_output=args.include_output)
+        Path(args.sarif).write_text(sarif, encoding="utf-8")
+    if args.html:
+        Path(args.html).write_text(report.to_html(include_output=args.include_output), encoding="utf-8")
+    if args.junit:
+        Path(args.junit).write_text(report.to_junit(include_output=args.include_output), encoding="utf-8")
     return 0 if report.passed else 1
+
+
+def _cmd_baseline_update(args: argparse.Namespace) -> int:
+    """Run the attacks and record the result as the baseline for later comparisons."""
+    config = load_config(args.config)
+    families = args.family or config.families
+    if args.trials:
+        config.run.trials = args.trials
+    policy = config.policy.model_copy(update={"baseline": None})
+    try:
+        target = build_target(config.target)
+        report = run_pipeline(
+            target,
+            policy=policy,
+            families=families or None,
+            packs=config.packs or None,
+            run_config=config.run,
+            on_result=_progress,
+        )
+    except AttackError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    err = next((c for c in report.checks if c.name == "error_rate"), None)
+    if err is not None and not err.passed:
+        print(
+            "refusing to record a baseline: too many trials errored (is the target reachable?)",
+            file=sys.stderr,
+        )
+        return 1
+    out = args.out or (config.policy.baseline.path if config.policy.baseline else DEFAULT_BASELINE_PATH)
+    report.to_baseline().save(out)
+    print(f"wrote baseline for {len(report.run.executed)} attacks to {out}", file=sys.stderr)
+    return 0
 
 
 def _cmd_deep(args: argparse.Namespace) -> int:
@@ -213,6 +254,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trials", type=int, help="override run.trials")
     p.add_argument("--report", help="write the Markdown report to this file")
     p.add_argument("--json", help="write the JSON report to this file")
+    p.add_argument("--baseline", help="compare against this baseline file (overrides policy.baseline.path)")
+    p.add_argument("--sarif", help="write a SARIF 2.1.0 report (GitHub code scanning)")
+    p.add_argument("--junit", help="write a JUnit XML report")
+    p.add_argument("--html", help="write a self-contained HTML report")
+    p.add_argument(
+        "--include-output",
+        action="store_true",
+        help="include model output snippets in SARIF/JUnit/HTML (default: omitted, they may contain secrets)",
+    )
     p.set_defaults(func=_cmd_run)
 
     p = sub.add_parser(
@@ -229,7 +279,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trials", type=int, help="override run.trials")
     p.add_argument("--report", help="write the Markdown report to this file")
     p.add_argument("--json", help="write the JSON report to this file")
+    p.add_argument("--baseline", help="compare against this baseline file (overrides policy.baseline.path)")
+    p.add_argument("--sarif", help="write a SARIF 2.1.0 report (GitHub code scanning)")
+    p.add_argument("--junit", help="write a JUnit XML report")
+    p.add_argument("--html", help="write a self-contained HTML report")
+    p.add_argument(
+        "--include-output",
+        action="store_true",
+        help="include model output snippets in SARIF/JUnit/HTML (default: omitted, they may contain secrets)",
+    )
     p.set_defaults(func=_cmd_run)
+
+    p = sub.add_parser("baseline", help="record the current results as the regression baseline")
+    bsub = p.add_subparsers(dest="baseline_command", required=True)
+    bp = bsub.add_parser("update", help="run the attacks and write the baseline file")
+    bp.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH)
+    bp.add_argument("--family", action="append", help="only this family (repeatable)")
+    bp.add_argument("--trials", type=int, help="override run.trials")
+    bp.add_argument("--out", help=f"baseline file (default: policy.baseline.path or {DEFAULT_BASELINE_PATH})")
+    bp.set_defaults(func=_cmd_baseline_update)
 
     p = sub.add_parser("deep", help="adaptive deep attack against the target")
     p.add_argument("--config", "-c", required=True, help="deep config YAML")
@@ -256,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     command: Callable[[argparse.Namespace], int] = args.func
     try:
         return command(args)
-    except (ConfigError, PackError, TargetError) as exc:
+    except (ConfigError, PackError, TargetError, BaselineError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

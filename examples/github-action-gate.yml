@@ -5,6 +5,10 @@ name: Red-team gate
 on:
   pull_request:
 
+permissions:
+  contents: read
+  security-events: write   # upload SARIF to code scanning
+
 jobs:
   redgrade:
     runs-on: ubuntu-latest
@@ -16,7 +20,17 @@ jobs:
       - name: Attack the app
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}   # whatever your app needs to run
-        run: uv run redgrade run -c redgrade.yaml --report redgrade-report.md --json redgrade.json
+        # Commit .redgrade/baseline.json (created with `redgrade baseline update`) and set
+        # `policy.baseline: {}` in redgrade.yaml to fail on per-attack regressions.
+        run: >
+          uv run redgrade run -c redgrade.yaml
+          --report redgrade-report.md --json redgrade.json
+          --sarif redgrade.sarif --junit redgrade-junit.xml --html redgrade.html
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: redgrade.sarif
+          category: redgrade
       - name: Show the report in the job summary
         if: always()
         run: cat redgrade-report.md >> "$GITHUB_STEP_SUMMARY"
@@ -27,3 +41,6 @@ jobs:
           path: |
             redgrade-report.md
             redgrade.json
+            redgrade.sarif
+            redgrade-junit.xml
+            redgrade.html

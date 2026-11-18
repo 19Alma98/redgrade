@@ -204,6 +204,53 @@ provider and is meant for local or staged red-team runs. Set `detector: llm_judg
 provider calls, reproducible gates. (`check` is an alias of `run` for pipelines wired in CI.)
 See [docs/deep-mode.md](docs/deep-mode.md) for model strings, env keys, and YAML examples.
 
+## Regressions, scorecard and reports
+
+**Baseline: fail on new successes, not just on a threshold.** Record a baseline once (counts only,
+never model output, so it is safe to commit) and compare every pull request against it, attack by
+attack:
+
+```bash
+redgrade baseline update -c redgrade.yaml        # writes .redgrade/baseline.json
+redgrade run -c redgrade.yaml --baseline .redgrade/baseline.json
+```
+
+```yaml
+policy:
+  baseline:
+    path: .redgrade/baseline.json
+    max_regressions: 0          # attacks that resisted in the baseline and now succeed
+    severity_at_least: medium   # ignore regressions below this severity
+    fail_on_worsened: false     # significant increase (Wilson intervals) of a failing attack
+    fail_on_new: false          # an attack missing from the baseline that succeeds (default: reported only)
+    allow:                      # accepted risks, with an expiry
+      - { id: PI-D-008, reason: "tracked in SEC-123", until: 2027-01-31 }
+```
+
+In the SDK: `check(target, baseline=".redgrade/baseline.json")`, then `report.baseline.regressions`.
+Utility probes are tracked too: a benign request that used to be answered and no longer is, is a
+regression. Errors are never "improvements".
+
+**Scorecard.** Every report carries a per-family and overall score (0-100), a 95% range and a letter
+grade. Attacks are weighted by severity and level; one successful critical attack caps the grade at D
+and a high one at C, whatever the average says. With few trials the range is wide and the report says
+so. Gate it with `min_security_score` and `min_family_score: {rag_poisoning: 80}`.
+
+**Report formats** (static, no provider calls):
+
+| flag | format | use |
+|---|---|---|
+| `--report` | Markdown | job summary |
+| `--json` | JSON (`schema_version: 2`) | machines, baselines |
+| `--sarif` | SARIF 2.1.0 | GitHub code scanning (stable per-attack fingerprints, `baselineState`) |
+| `--junit` | JUnit XML | GitLab, Jenkins, Azure DevOps |
+| `--html` | single self-contained HTML | humans, artifacts |
+
+SARIF, JUnit and HTML leave model output out by default (it can contain secrets or PII); pass
+`--include-output` to add snippets. SDK: `report.to_sarif()`, `to_junit()`, `to_html()`, `scorecard()`.
+In the lab, `redgrade.deep.summarize_scorecard(report, model=...)` asks an LLM (LiteLLM) to explain the
+scorecard; it never runs in CI.
+
 ## In CI
 
 Copy [examples/github-action-gate.yml](examples/github-action-gate.yml) into your repository.
