@@ -8,6 +8,7 @@ from typing import cast
 from redgrade.attachments import Attachment, AttachmentSpec, build_attachment
 from redgrade.constants import TEMPLATE_OOB_URL
 from redgrade.history import format_history
+from redgrade.identity import expand_identity
 from redgrade.models import Attack, AttackTurn
 from redgrade.mutations import materialize
 from redgrade.oob import Fixture, current_oob_base
@@ -40,9 +41,11 @@ def oob_url(canary: str) -> str:
 
 
 def render(template: str, canary: str) -> str:
-    """Substitute ``{OOB_URL}`` and the canary, then apply encodings and L4 mutation markers."""
+    """Substitute ``{OOB_URL}``, identity placeholders and the canary, then apply encodings and
+    L4 mutation markers."""
     if TEMPLATE_OOB_URL in template:
         template = template.replace(TEMPLATE_OOB_URL, oob_url(canary))
+    template = expand_identity(template)
     return materialize(_ENC.sub(_encode, template.replace("{CANARY}", canary)))
 
 

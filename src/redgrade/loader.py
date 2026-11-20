@@ -168,8 +168,17 @@ class PackLoader:
                         turn_docs.extend(str(x) for x in extra)
                         turn_files = self._parse_attachments(t, origin, str(raw.get("id", "?")))
                         any_docs = any_docs or bool(turn_docs) or bool(turn_files)
+                        if t.get("new_session") and i == 0:
+                            raise PackError(
+                                f"{origin}: {raw.get('id')}: the first turn cannot be new_session"
+                            )
                         turns.append(
-                            {"prompt": str(t["prompt"]), "documents": turn_docs, "attachments": turn_files}
+                            {
+                                "prompt": str(t["prompt"]),
+                                "documents": turn_docs,
+                                "attachments": turn_files,
+                                "new_session": bool(t.get("new_session", False)),
+                            }
                         )
                     detect_on = str(raw.get("detect_on", DETECT_ON_LAST))
                     if detect_on not in (DETECT_ON_LAST, DETECT_ON_ANY):

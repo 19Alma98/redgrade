@@ -4,6 +4,7 @@ import secrets as _secrets
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -13,17 +14,20 @@ from redgrade.constants import (
     DEFAULT_MAX_OUTPUT_CHARS,
     DEFAULT_TRIALS,
     DETECT_ON_ANY,
+    DETECTOR_ACCESS_VIOLATION,
     DETECTOR_LLM_JUDGE,
     DETECTOR_OOB_CALLBACK,
     OOB_HIT_FIXTURE,
     OOB_NOT_FETCHED,
     SKIP_NO_ATTACHMENTS_SURFACE,
     SKIP_NO_HISTORY_SURFACE,
+    SKIP_NO_IDENTITY,
     SKIP_NO_OOB,
     SKIP_NO_TOOLS_SURFACE,
 )
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.history import history_text
+from redgrade.identity import Identity, identity_scope
 from redgrade.models import Attack, AttackResult, RunResult, TargetObservation, ToolCall, Trial
 from redgrade.oob import OobHit, OobServer, oob_scope
 from redgrade.render import (
@@ -35,6 +39,7 @@ from redgrade.render import (
     render_tools,
     render_turn,
 )
+from redgrade.session import session_id_for, session_scope
 from redgrade.targets import (
     Target,
     invoke_target,
@@ -52,6 +57,7 @@ class RunConfig(BaseModel):
     secrets: list[str] = Field(default_factory=list)
     allowed_hosts: list[str] = Field(default_factory=list)
     max_output_chars: int = DEFAULT_MAX_OUTPUT_CHARS
+    identity: Identity = Field(default_factory=Identity)
 
     @field_validator("trials", "concurrency")
     @classmethod
@@ -90,6 +96,10 @@ class AttackRunner:
         canary: str | None = None,
     ) -> Trial:
         canary = canary or new_canary()
+        with identity_scope(config.identity), session_scope(session_id_for(canary, 1)):
+            return self._run_trial(attack, target, config, canary)
+
+    def _run_trial(self, attack: Attack, target: Target, config: RunConfig, canary: str) -> Trial:
         oob = self.oob
         if oob is None or not attack.requires_oob:
             return self._execute(attack, target, config, canary, _no_hits)
@@ -151,8 +161,15 @@ class AttackRunner:
         turn_outputs: list[str] = []
         last_tools: list[ToolCall] = []
         all_inputs: list[str] = list(forged_inputs)
+        session = 1
+        sessions = ExitStack()
         try:
             for turn in attack.turns:
+                if turn.new_session:
+                    # A separate conversation: nothing from earlier turns is sent back.
+                    session += 1
+                    history = []
+                    sessions.enter_context(session_scope(session_id_for(canary, session)))
                 prompt, documents = render_turn(turn, canary)
                 files = render_attachments(turn.attachments, canary)
                 all_inputs.extend([prompt, *documents, *attachments_text(files)])
@@ -184,6 +201,8 @@ class AttackRunner:
                 latency_s=time.perf_counter() - start,
                 canary=canary,
             )
+        finally:
+            sessions.close()
         output = turn_outputs[-1]
         latency = time.perf_counter() - start
         obs = TargetObservation(output=output, tools_called=tuple(last_tools))
@@ -208,6 +227,7 @@ class AttackRunner:
             inputs=inputs,
             secrets=config.secrets,
             allowed_hosts=config.allowed_hosts,
+            victim_data=config.identity.victim_data,
             tools_called=tools_called,
             oob_hits=oob_hits,
             args=args,
@@ -260,6 +280,12 @@ class AttackRunner:
                 return AttackResult(attack=attack, skipped_reason=SKIP_NO_TOOLS_SURFACE)
             if attack.requires_history and not target_accepts_history(target):
                 return AttackResult(attack=attack, skipped_reason=SKIP_NO_HISTORY_SURFACE)
+            if (
+                attack.detector == DETECTOR_ACCESS_VIOLATION
+                and not config.identity.victim_data
+                and not target_observes_tools(target)
+            ):
+                return AttackResult(attack=attack, skipped_reason=SKIP_NO_IDENTITY)
             if attack.requires_oob and self.oob is None:
                 return AttackResult(attack=attack, skipped_reason=SKIP_NO_OOB)
             result = AttackResult(attack=attack)
