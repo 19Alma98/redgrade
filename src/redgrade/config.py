@@ -76,6 +76,10 @@ policy:
   require_utility: true
   require_families: [prompt_injection_direct, prompt_injection_indirect, task_utility]
 
+# Identities for access-control attacks (BOLA / BFLA / RBAC): use a test tenant.
+# identity: {{ user_id: "C-1001", victim_id: "C-2002", role: customer, admin_role: admin, victim_data: [] }}
+# Memory attacks start new sessions: map {{{{session_id}}}} in the body / URL / headers if your app uses one.
+
 # Out-of-band collector: a local "attacker" web server for agents that fetch URLs.
 # oob: {{ host: 127.0.0.1, port: 8787, public_url: "http://host.docker.internal:8787", wait: 1.0 }}
 # packs: [my_attacks.yaml]

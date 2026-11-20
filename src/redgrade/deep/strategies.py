@@ -7,12 +7,18 @@ from redgrade.constants import (
     STRATEGY_CRESCENDO,
     STRATEGY_ECHO_CHAMBER,
     STRATEGY_GOAT,
+    STRATEGY_MISCHIEVOUS_USER,
     STRATEGY_PAIR,
     STRATEGY_TAP,
 )
 from redgrade.deep.attacker import GoalRun, GoalSpec, PairLiteAttacker
 from redgrade.deep.best_of_n import BestOfNAttacker
-from redgrade.deep.conversational import CrescendoAttacker, EchoChamberAttacker, GoatAttacker
+from redgrade.deep.conversational import (
+    CrescendoAttacker,
+    EchoChamberAttacker,
+    GoatAttacker,
+    MischievousUserAttacker,
+)
 from redgrade.deep.errors import DeepError
 from redgrade.deep.tap import TapAttacker
 from redgrade.targets import Target
@@ -54,5 +60,7 @@ def get_strategy(
         return EchoChamberAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
     if name == STRATEGY_BEST_OF_N:
         return BestOfNAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
+    if name == STRATEGY_MISCHIEVOUS_USER:
+        return MischievousUserAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
     known = ", ".join(DEEP_STRATEGIES)
     raise DeepError(f"unknown strategy: {name!r} (known: {known})")

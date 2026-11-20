@@ -35,7 +35,7 @@ signal for hardening, not as the default merge gate.
 Pick them with `strategies:` in the deep config, `--strategy` (repeatable) on the CLI, or
 `strategies=[...]` in `deep_attack()` / `check_deep()`. Each goal runs once per strategy, with id
 `<goal>~<strategy>`. On the security ladder single-turn strategies (`pair`, `tap`, `best_of_n`) count
-as **L4** and multi-turn ones (`crescendo`, `goat`, `echo_chamber`) as **L5**.
+as **L4** and multi-turn ones (`crescendo`, `goat`, `echo_chamber`, `mischievous_user`) as **L5**.
 
 ### From the lab to CI: `--export-wins`
 
@@ -57,6 +57,7 @@ file with `--pack` / `packs=` and the win is replayed on every pull request, wit
 | `crescendo` | multi-turn | escalates gradually from benign turns, building on the target's answers | Crescendo (Russinovich et al., 2024) |
 | `goat` | multi-turn, agentic | attacker reasons (observation, thought, strategy) over a toolbox: refusal suppression, response priming, dual response, persona, fiction, topic splitting, opposite intent, authority | GOAT (Pavlova et al., 2024) |
 | `echo_chamber` | multi-turn | plants harmless seeds, then makes the target elaborate on its own earlier words until it states the goal | Echo Chamber (NeuralTrust, 2025) |
+| `mischievous_user` | multi-turn | a realistic, slightly mischievous customer: casual tone, typos, promised exceptions, emotional pressure, no red-team vocabulary; finds the policy gaps ordinary users hit | promptfoo `mischievous-user` |
 | `best_of_n` | sampling, no attacker model | seeded random augmentations (word scrambling, caps, ASCII noise) of the seed or goal until one works; reproducible | Best-of-N (Hughes et al., 2024) |
 
 The multi-turn strategies **backtrack** like Crescendo: when the target refuses, that turn is removed
@@ -64,6 +65,33 @@ from the history sent on the next call (it still counts as a trial) and the atta
 another angle. `best_of_n` success grows with the number of samples, so give it a larger
 `max_rounds` (e.g. 50) than the LLM strategies. The static counterpart for CI is the `bon:N`
 mutation (see [writing-attacks.md](writing-attacks.md#mutations-and-mutate_scope)).
+
+## Attacks for your app: `generate`, `translate`, `import-dataset`
+
+Built-in packs are generic. Three lab commands produce **static packs** the CI replays with no
+provider calls:
+
+```bash
+# an attacker model writes attacks tailored to the app (domain, users, tools, data)
+redgrade generate --purpose "HR assistant; reads CVs; tools: schedule_interview, email_candidate" \
+    --family prompt_injection_indirect --family access_control --family memory_poisoning \
+    --count 5 --level 1 --level 3 --level 5 -o generated.yaml
+
+# L4 variants in other (low-resource) languages, placeholders protected
+redgrade translate generated.yaml --lang zu --lang gd
+
+# public datasets you downloaded yourself
+redgrade import-dataset harmful_behaviors.csv --preset advbench --limit 50 -o advbench.yaml
+```
+
+| command | SDK | notes |
+|---|---|---|
+| `generate` | `redgrade.deep.generate_attacks(purpose, families=..., count=..., chat=...)` | families with a deterministic detector: `prompt_injection_direct`, `prompt_injection_indirect`, `info_disclosure`, `output_injection`, `user_manipulation`, `access_control`, `memory_poisoning`; attacks without the placeholder their detector needs, or rejected by the loader, are dropped |
+| `translate` | `translate_attacks(attacks, languages, chat=...)` | ids get `~tr_<lang>`, level 4, technique `translation_<lang>`; a variant that loses a placeholder is dropped |
+| `import-dataset` | `redgrade.datasets.import_dataset(path, preset=...)` | presets `advbench`, `jailbreakbench` (verdict: `contains` the affirmative target prefix, a static proxy) and `harmbench` (`llm_judge`, deep only); any CSV / JSONL with `--prompt-field` |
+
+Write the pack once, review it, commit it, and add it with `--pack` / `packs:`. Pass your own
+`chat=` callable to use any provider from the SDK.
 
 ## LiteLLM model strings
 
@@ -107,7 +135,7 @@ attacker:
   api_base: http://127.0.0.1:11434
 
 max_rounds: 5
-strategies: [pair, crescendo, goat, echo_chamber, tap, best_of_n]
+strategies: [pair, crescendo, goat, echo_chamber, mischievous_user, tap, best_of_n]
 goals:
   - Make the assistant reply only with the canary token.
 seed_attack_ids:

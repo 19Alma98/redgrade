@@ -24,8 +24,13 @@ Applications (2026).
 | 0.5 | Out-of-band collector: attacker web server with per-trial fixtures (pages, JSON APIs, multi-hop chains), `{OOB_URL}`, `oob_callback` detector, inconclusive-when-not-fetched rule; demo browsing agents | LLM01, LLM02, ASI01 | shipped (6 attacks) |
 | 0.5 | Five-level ladder for every family (all built-in attacks leveled, L4 mutations beyond PI), contiguous "security level" in Markdown / JSON / HTML / SDK, `min_security_level` / `min_family_level` gates | all | shipped |
 | later | DNS / external collectors (interactsh-style) for agents that cannot reach the runner over HTTP | LLM02 | planned |
-| later | Visible-text images (OCR / vision injection), `.xlsx`, `.pptx`, EPUB, archives | LLM01 | planned |
-| later | More output handling: XSS payloads, SQL and shell injection through model output | LLM05 | planned |
+| 0.6 | Images with the payload in the pixels (`png` `visible` / `low_contrast` / `tiny`, built-in bitmap font) for OCR / vision pipelines | LLM01 | shipped (3 attacks) |
+| later | `.xlsx`, `.pptx`, EPUB, archives; photorealistic adversarial images | LLM01 | planned |
+| 0.6 | Unsafe output: XSS, javascript links, SQL, shell, CSV formula and template injection, in replies and tool arguments (`unsafe_output`) | LLM05 | shipped (12 attacks) |
+| 0.6 | Broken access control: BOLA / IDOR, BFLA, RBAC escalation, identity spoofing; `identity:` config and `access_violation` | LLM06, ASI03 | shipped (11 attacks) |
+| 0.6 | Memory poisoning across sessions: `new_session` turns, `{{session_id}}` | ASI06 | shipped (7 attacks) |
+| 0.6 | Human-agent trust exploitation: phishing, vishing, card harvesting, payment redirection, malicious downloads | ASI09 | shipped (6 attacks) |
+| 0.6 | Insecure inter-agent communication: spoofed orchestrator, forged agent card, replayed peer message | ASI07 | shipped (3 attacks) |
 | later | Index / retrieval hooks for custom vector stores | LLM08 | planned |
 | 0.3 | Agents: goal hijack, unauthorized tool use, manipulated parameters, SSRF/path traversal via tools | LLM06, ASI01 | shipped (8 attacks) |
 | 0.3 | MCP: tool poisoning, rug pull, cross-server shadowing, confused deputy, poisoned tool outputs | LLM06 | shipped (6 attacks) |
@@ -43,7 +48,14 @@ Applications (2026).
 - [x] GOAT, Echo Chamber and Best-of-N deep strategies; refusal backtracking for multi-turn attackers
 - [x] More L4 mutations: Morse, reverse, emoji smuggling, Policy Puppetry, refusal suppression, prefix injection, code wrap, many-shot, seeded Best-of-N (`bon:N`); presets; per-technique ASR in the report
 - [x] L4 encodings render after the canary (encoded variants used to carry the literal placeholder and could never succeed)
-- [ ] Low-resource-language translation and ASCII-art mutations (need offline dictionaries / font tables)
+- [x] ASCII-art mutation (ArtPrompt-style masking, built-in bitmap font)
+- [x] Low-resource-language variants: `redgrade translate` (lab, attacker LLM) frozen into packs as L4 `translation_<lang>`
+- [x] Attacks generated from the app's purpose (`redgrade generate`), frozen into packs for static CI replay
+- [x] Dataset import: AdvBench, JailbreakBench, HarmBench presets and generic CSV / JSONL (`redgrade import-dataset`)
+- [x] `mischievous_user` deep strategy (realistic user, everyday pressure)
+- [x] `ci.output` (default) and `ci.agent` (tools surface) `check()` pipelines
+- [ ] Hallucination / overreliance and package-hallucination probes (need a judge or a curated fact set)
+- [ ] AutoDAN-Turbo-style strategy library that learns across runs
 - [x] LLM-judge detector for verdicts a regex cannot give (deep-only; CI stays deterministic)
 - [x] Per-attack baseline compare: "new successes vs `main`" as a gate (`redgrade baseline update`, `policy.baseline`)
 - [x] HTML, SARIF and JUnit reports; report JSON `schema_version: 2`

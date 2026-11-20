@@ -206,6 +206,7 @@ STRATEGY_TAP: Final = "tap"
 STRATEGY_GOAT: Final = "goat"
 STRATEGY_ECHO_CHAMBER: Final = "echo_chamber"
 STRATEGY_BEST_OF_N: Final = "best_of_n"
+STRATEGY_MISCHIEVOUS_USER: Final = "mischievous_user"
 DEEP_STRATEGIES: Final[tuple[str, ...]] = (
     STRATEGY_PAIR,
     STRATEGY_CRESCENDO,
@@ -213,6 +214,7 @@ DEEP_STRATEGIES: Final[tuple[str, ...]] = (
     STRATEGY_GOAT,
     STRATEGY_ECHO_CHAMBER,
     STRATEGY_BEST_OF_N,
+    STRATEGY_MISCHIEVOUS_USER,
 )
 
 # --- report ---------------------------------------------------------------------------------
