@@ -1,31 +1,30 @@
-# Deep mode (adaptive attacks)
+# Adaptive attackers (deep mode)
 
-Deep mode runs adaptive attackers: an LLM attacker (or, for Best-of-N, a seeded sampler) proposes
-prompts, your app (or a lab model) is trialed, and deterministic detectors (or an LLM judge) score
-the outcome. Use it to experiment beyond the static attack
-packs—not as the default pull-request gate.
+Adaptive attackers are an LLM attacker (or, for Best-of-N, a seeded sampler) that proposes
+prompts, trials them against your agent, and rewrites them from its answers; deterministic
+detectors (or an LLM judge) score the outcome.
 
-**CI and library tests should keep using** [`redgrade run`](../README.md#in-ci) and
-[`attack()`](../README.md#use-as-a-library). Those paths use static packs and deterministic L4
-mutations only; they never call LiteLLM or your provider.
+**Most of the time you do not call them directly:** [`scan()`](../README.md#scan-your-agent) runs
+them on the attacks your agent resisted, together with the built-in and generated attacks, and
+returns findings and a release verdict. This page covers the attackers themselves: `redgrade
+deep`, `deep_attack()` and `check_deep()`, for runs on goals you choose.
+
+**CI keeps using** [`redgrade check`](../README.md#the-ci-gate-check): static packs and
+deterministic L4 mutations only; it never calls LiteLLM or your provider.
 
 ## Install
 
-LiteLLM is an optional extra, so CI installs stay light. Install it where you run deep mode:
+LiteLLM is a dependency of redgrade (`pip install redgrade`); it is imported only when an
+attacker or judge runs, so `check` in CI never loads it. `pip install 'redgrade[deep]'` still
+works and installs the same thing.
 
-```bash
-pip install 'redgrade[deep]'      # or: uv sync --extra deep
-```
-
-Without it, `redgrade deep` / `check_deep()` fail early with a clear message; `run`, `check` and
-`attack()` never import it.
-
-## When to use `run` vs `deep`
+## When to use `scan`, `deep` or `check`
 
 | Surface | Command / API | Provider calls | Typical use |
 |---|---|---|---|
-| CI gate | `redgrade run`, `attack(HttpTarget(...))` | No | Every PR; reproducible ASR + utility |
-| Deep lab | `redgrade deep`, `deep_attack(...)` | Yes (attacker + optional judge + LLM target) | Local red-team experiments |
+| Pre-release scan | `redgrade scan`, `scan(...)` | Yes (attacker, judge) | Before every release: findings + verdict |
+| Adaptive only | `redgrade deep`, `deep_attack(...)` | Yes (attacker + optional judge + LLM target) | Goals you choose |
+| CI gate | `redgrade check`, `check(HttpTarget(...))` | No | Every PR; reproducible ASR + utility |
 
 Adaptive ASR is **probabilistic** and can be flaky across models and rounds. Treat deep results as
 signal for hardening, not as the default merge gate.

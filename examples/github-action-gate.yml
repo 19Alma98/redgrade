@@ -16,14 +16,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
-      - run: uv pip install redgrade   # no [deep] extra: CI is static, no provider calls
+      - run: uv pip install redgrade   # CI runs `check`: static, no attacker, no provider calls
       - name: Attack the app
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}   # whatever your app needs to run
         # Commit .redgrade/baseline.json (created with `redgrade baseline update`) and set
         # `policy.baseline: {}` in redgrade.yaml to fail on per-attack regressions.
         run: >
-          uv run redgrade run -c redgrade.yaml
+          uv run redgrade check -c redgrade.yaml
           --report redgrade-report.md --json redgrade.json
           --sarif redgrade.sarif --junit redgrade-junit.xml --html redgrade.html
       - uses: github/codeql-action/upload-sarif@v3
