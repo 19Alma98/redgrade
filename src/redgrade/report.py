@@ -20,7 +20,7 @@ from redgrade.families import FAMILIES
 from redgrade.levels import LevelPosture, LevelScorer, level_label
 from redgrade.models import AttackResult, RunResult
 from redgrade.policy import Check, Policy, passed
-from redgrade.scoring import PiPosture, PiScorer
+from redgrade.scoring import PiPosture, PiScorer, evasion_stats
 from redgrade.types import AttackSummary, CheckDict, FamilyStat, JsonValue, PiPostureDict, ReportDict
 from redgrade.utility import attack_results, utility_rate
 
@@ -124,6 +124,27 @@ class ReportBuilder:
                 lines.append(f"| {fam.name} | {holds} | {broken} | {untested} |")
         return lines
 
+    def _evasion_markdown(self, run: RunResult) -> list[str]:
+        stats = evasion_stats(run)
+        if not stats:
+            return []
+        lines = [
+            "",
+            "## Evasion techniques (L4)",
+            "",
+            "Each row is a mutation applied to seed attacks (encodings, obfuscation, framing, "
+            "Best-of-N). A technique with ASR above its seeds' means the defense matches surface text.",
+            "",
+            "| technique | attacks | ASR |",
+            "|---|---|---|",
+        ]
+        ranked = sorted(stats.items(), key=lambda kv: (-(kv[1]["asr"] or 0.0), kv[0]))
+        for kind, st in ranked:
+            asr = st["asr"]
+            label = f"**{_pct(asr)}**" if asr else _pct(asr)
+            lines.append(f"| {kind} | {st['attacks']} | {label} |")
+        return lines
+
     def to_dict(self, run: RunResult, checks: list[Check], policy: Policy | None = None) -> ReportDict:
         check_rows: list[CheckDict] = [
             {"name": c.name, "value": c.value, "limit": c.limit, "passed": c.passed} for c in checks
@@ -143,6 +164,7 @@ class ReportBuilder:
                 "valid": len(r.valid_trials),
                 "successes": r.successes,
                 "flaky": r.flaky,
+                "mutation": r.attack.mutation or None,
             }
             for r in run.results
         ]
@@ -157,6 +179,7 @@ class ReportBuilder:
             "pi_posture": self._posture_dict(posture),
             "security_level": cast(dict[str, JsonValue], self._level_posture(run, policy).to_dict()),
             "utility_overall": utility_rate(run),
+            "evasion": evasion_stats(run),
         }
 
     def to_json(self, run: RunResult, checks: list[Check], policy: Policy | None = None) -> str:
@@ -193,6 +216,7 @@ class ReportBuilder:
         lines += self._level_markdown(self._level_posture(run, policy))
         posture = self._score_posture(run, policy)
         lines += self._pi_posture_markdown(posture)
+        lines += self._evasion_markdown(run)
 
         stats = self.family_stats(run)
         lines += [

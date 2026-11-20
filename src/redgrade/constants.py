@@ -149,6 +149,20 @@ DEFAULT_MUTATIONS: Final[tuple[str, ...]] = (
     "bidi",
     "split",
 )
+# Presets usable in an attack's ``mutations`` list ("default" and "all" are resolved in code;
+# ``bon`` / ``bon:N`` adds N seeded Best-of-N variants).
+MUTATION_PRESETS: Final[dict[str, tuple[str, ...]]] = {
+    "encoding": ("b64", "hex", "rot13", "morse", "reverse", "unicode_tags", "emoji_smuggle"),
+    "obfuscation": ("leetspeak", "homoglyph", "zw", "bidi", "split"),
+    "framing": (
+        "policy_puppetry",
+        "refusal_suppression",
+        "prefix_injection",
+        "code_wrap",
+        "many_shot",
+    ),
+}
+DEFAULT_BON_VARIANTS: Final = 5
 MutateScope = Literal["prompt", "document", "all"]
 MUTATE_SCOPE_PROMPT: Final[Literal["prompt"]] = "prompt"
 MUTATE_SCOPE_DOCUMENT: Final[Literal["document"]] = "document"
@@ -173,6 +187,17 @@ DEFAULT_ATTACKER_API_BASE: Final = "http://127.0.0.1:11434"
 STRATEGY_PAIR: Final = "pair"
 STRATEGY_CRESCENDO: Final = "crescendo"
 STRATEGY_TAP: Final = "tap"
+STRATEGY_GOAT: Final = "goat"
+STRATEGY_ECHO_CHAMBER: Final = "echo_chamber"
+STRATEGY_BEST_OF_N: Final = "best_of_n"
+DEEP_STRATEGIES: Final[tuple[str, ...]] = (
+    STRATEGY_PAIR,
+    STRATEGY_CRESCENDO,
+    STRATEGY_TAP,
+    STRATEGY_GOAT,
+    STRATEGY_ECHO_CHAMBER,
+    STRATEGY_BEST_OF_N,
+)
 
 # --- report ---------------------------------------------------------------------------------
 

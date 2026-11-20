@@ -9,6 +9,7 @@ from redgrade.attachments import Attachment, AttachmentSpec, build_attachment
 from redgrade.constants import TEMPLATE_OOB_URL
 from redgrade.history import format_history
 from redgrade.models import Attack, AttackTurn
+from redgrade.mutations import materialize
 from redgrade.oob import Fixture, current_oob_base
 from redgrade.types import HistoryMessage, HistoryToolCall, JsonValue
 
@@ -39,10 +40,10 @@ def oob_url(canary: str) -> str:
 
 
 def render(template: str, canary: str) -> str:
-    """Substitute ``{OOB_URL}`` and the canary, then apply encodings."""
+    """Substitute ``{OOB_URL}`` and the canary, then apply encodings and L4 mutation markers."""
     if TEMPLATE_OOB_URL in template:
         template = template.replace(TEMPLATE_OOB_URL, oob_url(canary))
-    return _ENC.sub(_encode, template.replace("{CANARY}", canary))
+    return materialize(_ENC.sub(_encode, template.replace("{CANARY}", canary)))
 
 
 def render_json(node: JsonValue, canary: str) -> JsonValue:

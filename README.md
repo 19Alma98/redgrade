@@ -5,7 +5,8 @@ exfiltration attempts, measures how often they work, and fails the pull request 
 regresses. Self-hosted, one small package, no SaaS.
 
 > Status: **0.4 (alpha)**, with real file attachments, conversation-history attacks and an out-of-band
-> collector in development for 0.5. 120 base attacks across 17 packs (plus 39 derived L4 mutations),
+> collector in development for 0.5. 120 base attacks across 17 packs (plus 50 derived L4 mutations: encodings, obfuscation, framing and
+> seeded Best-of-N),
 > every attack on a five-level ladder, task-utility probes, PI maturity score and
 > level posture in the report. Adaptive attackers (and optional LLM-judge) are available via
 > [`redgrade deep`](docs/deep-mode.md), which needs `pip install 'redgrade[deep]'`. Built to pair with
@@ -32,13 +33,13 @@ uv run redgrade run -c examples/redgrade.hardened.yaml --trials 3       # exit c
 
 | | vulnerable app | hardened app |
 |---|---|---|
-| Overall ASR | 71% | 1% |
+| Overall ASR | 77% | 1% |
 | Security level (all families) | broken at L1 | holds L1, broken at L2 |
-| PI Maturity Score | 15/100 | 98/100 |
-| Indirect prompt injection | 50% | 0% |
-| Malicious file attachments | 85% | 0% |
+| PI Maturity Score | 11/100 | 98/100 |
+| Indirect prompt injection | 64% | 0% |
+| Malicious file attachments | 95% | 0% |
 | Forged conversation history | 100% | 0% |
-| RAG poisoning | 50% | 0% |
+| RAG poisoning | 63% | 0% |
 | Leaks (prompt, secrets, PII) | 90% | 0% |
 | Gate | **FAILED** | passed |
 
@@ -281,7 +282,10 @@ need `secrets`, a tools observation surface, native history or the out-of-band c
 
 ## Deep mode
 
-For adaptive, LLM-driven attack variants (PAIR-lite via LiteLLM), use the separate **`redgrade deep`**
+For adaptive attack variants use the separate **`redgrade deep`** subcommand. Strategies
+(`--strategy`, or `strategies:` in the deep config): `pair`, `tap`, `crescendo`, `goat`,
+`echo_chamber` (LLM attackers via LiteLLM; the multi-turn ones backtrack on refusals) and
+`best_of_n` (seeded random augmentations, no attacker model). Use the separate **`redgrade deep`**
 subcommand and the `redgrade.deep` SDK—not `run` or `attack()`. Deep mode calls your configured
 provider and is meant for local or staged red-team runs. Set `detector: llm_judge` (and optional
 `judge:`) when canary/regex cannot score the goal.

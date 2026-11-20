@@ -8,6 +8,7 @@ from redgrade.deep.errors import DeepError
 from redgrade.deep.judge import score_output
 from redgrade.detectors import DetectorContext
 from redgrade.models import Attack, Trial
+from redgrade.render import render
 from redgrade.runner import new_canary
 from redgrade.targets import Target, invoke_target, normalize_observation
 
@@ -63,7 +64,8 @@ def _parse_payload(raw: str) -> tuple[str, list[str]]:
 
 
 def _substitute_canary(prompt: str, documents: list[str], canary: str) -> tuple[str, list[str]]:
-    return prompt.replace("{CANARY}", canary), [d.replace("{CANARY}", canary) for d in documents]
+    """Render ``{CANARY}``, ``{OOB_URL}``, encodings and L4 mutation markers (seeded goals)."""
+    return render(prompt, canary), [render(d, canary) for d in documents]
 
 
 def _build_feedback(trials: list[Trial], payloads: list[tuple[str, list[str]]]) -> str:

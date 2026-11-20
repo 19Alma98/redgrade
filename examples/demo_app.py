@@ -8,8 +8,8 @@ offline, for free, with reproducible numbers. Swap it for a real model call to a
 ``hardened`` adds the usual layers around the same model: input filtering, treating documents as
 data, and output filtering. After those checks it feeds the same transcript layout as
 ``vulnerable`` (system prompt, prior user/assistant turns, documents, current prompt) into the
-stand-in model. Plain override phrases are blocked in user input, so L4 derived encoding mutations
-usually fail before ``naive_model`` decodes them. The deliberate residual gap is multilingual
+stand-in model. Override phrases are blocked in user input after decoding it the way the model
+would (Base64, ROT13, split strings), so L4 encoding mutations fail before ``naive_model`` sees them. The deliberate residual gap is multilingual
 authority wording (e.g. PI-D-013), which the demo input filter does not match.
 
 ``hardened`` also distrusts client-sent conversation history: forged ``system`` / ``tool`` turns are
@@ -172,9 +172,11 @@ MAX_OUTPUT = 4000
 
 
 def _clean_document(doc: str) -> str:
+    if re.search(r"rot13", doc, re.I):  # canonicalize: clean what the model would read
+        doc = codecs.decode(doc, "rot13")
     doc = _HTML_COMMENT.sub("", doc)
     doc = _HR_LOCKER_CODE.sub("[redacted]", doc)
-    return "\n".join(line for line in doc.splitlines() if not _DOC_LINE_BLOCK.search(line))
+    return "\n".join(line for line in doc.splitlines() if not _DOC_LINE_BLOCK.search(_expand(line)))
 
 
 def _clean_output(out: str) -> str:
@@ -211,7 +213,8 @@ def hardened(
     history = _trusted_history(history or [])
     user_text = [m["content"] for m in history if m.get("role") == "user"]
     blob = "\n".join([prompt, *user_text])
-    if _BLOCKED_INPUT.search(blob):
+    # Canonicalize before filtering: decode what the model would decode, then match.
+    if _BLOCKED_INPUT.search(_expand(blob)):
         return "Mi dispiace, non posso aiutarti con questa richiesta."
     if _HR_ASK.search(prompt):
         return (
@@ -435,7 +438,8 @@ def hardened_agent(
     history = _trusted_history(history or [])
     user_text = [m["content"] for m in history if m.get("role") == "user"]
     blob = "\n".join([prompt, *user_text])
-    if _BLOCKED_INPUT.search(blob):
+    # Canonicalize before filtering: decode what the model would decode, then match.
+    if _BLOCKED_INPUT.search(_expand(blob)):
         return TargetObservation(output="Mi dispiace, non posso aiutarti con questa richiesta.")
     obs = vulnerable_agent(prompt, documents, history, tools)
     safe = tuple(c for c in obs.tools_called if c.name.lower() not in _FORBIDDEN)

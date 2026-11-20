@@ -322,7 +322,7 @@ Built-in prompt-injection attacks carry extra fields used for maturity scoring a
 | L1 | Overt basic | Plain override, simple roleplay |
 | L2 | Structured override | Fake system, delimiter escape, authority, multilingual |
 | L3 | Indirect / latent | Poisoned document with a harmless user prompt |
-| L4 | Evasive | Deterministic mutations of L1–L3 seeds (encoding, unicode, split) |
+| L4 | Evasive | Deterministic mutations of L1–L3 seeds (encoding, obfuscation, framing, Best-of-N) |
 | L5 | Multi-turn / compositional | Gradual escalation, many-shot priming |
 
 `level` is orthogonal to `severity` (`low` … `critical`): level is sophistication, not impact.
@@ -347,29 +347,48 @@ Stable string id for grouping in reports, e.g. `ignore_override`, `fake_system`,
 ### `mutations` and `mutate_scope`
 
 Opt in seeds to the mutation expander with `mutations` on the attack (YAML list). Each mutator
-produces a derived attack with `id: "{base_id}~{mutation}"`, `level: 4`, and the same family,
-detector, and delivery as the seed.
+produces a derived attack with `id: "{base_id}~{mutation}"`, `level: 4`, `mutation: <kind>`, and the
+same family, detector, and delivery as the seed.
 
-- `mutations: [default]` expands to the built-in default list (see below).
-- Any other list uses only those mutator ids, in order.
+- `mutations: [default]` expands to the built-in default list (below); `all` expands to every kind.
+- Presets: `encoding`, `obfuscation`, `framing` (see the table). Presets and kinds can be mixed.
+- `bon` / `bon:N` adds N (default 5) **seeded Best-of-N** variants (`~bon1` … `~bonN`).
 - Seeds without `mutations` are not auto-expanded (keeps CI size bounded).
+- `redgrade list` prints every kind and preset.
 
 `mutate_scope` controls which text is mutated: `prompt`, `document`, or `all` (default). For
 multi-turn seeds, `all` applies to non-empty fields on each turn.
 
-Default mutation list (`constants.py`, subject to explicit per-attack overrides):
+**Encoding happens at render time**, after `{CANARY}` and `{OOB_URL}` are substituted. A model that
+decodes and obeys a Base64 payload therefore prints this trial's real canary, and the attack is
+scored as a success. (Before 0.5, encodings wrapped the literal `{CANARY}` placeholder, so encoded
+variants could never succeed; L4 scores from older runs are optimistic.) Character-level
+obfuscations keep the canary and URLs verbatim so an obeying model can echo them.
 
-| id | Effect |
-|---|---|
-| `b64` | Base64-wrapped instruction |
-| `hex` | Hex-encoded instruction |
-| `rot13` | ROT13 instruction |
-| `leetspeak` | Character substitution |
-| `homoglyph` | Cyrillic/Greek lookalikes |
-| `zw` | Zero-width characters between tokens |
-| `unicode_tags` | Payload in a Unicode Tags block |
-| `bidi` | Bidirectional override |
-| `split` | Payload splitting (A + B) |
+| id | preset | effect |
+|---|---|---|
+| `b64` | encoding, default | Base64-wrapped instruction |
+| `hex` | encoding, default | Hex-encoded instruction |
+| `rot13` | encoding, default | ROT13 instruction |
+| `morse` | encoding | Morse code (`/` between words) |
+| `reverse` | encoding | Text written backwards |
+| `unicode_tags` | encoding, default | Payload in invisible Unicode Tag characters |
+| `emoji_smuggle` | encoding | Bytes hidden in variation selectors after one emoji |
+| `leetspeak` | obfuscation, default | Character substitution (canary and URLs kept) |
+| `homoglyph` | obfuscation, default | Cyrillic lookalikes (canary and URLs kept) |
+| `zw` | obfuscation, default | Zero-width characters between letters |
+| `bidi` | obfuscation, default | Bidirectional override |
+| `split` | obfuscation, default | Payload splitting (A + B) |
+| `policy_puppetry` | framing | Payload inside a fake XML policy/config block |
+| `refusal_suppression` | framing | Rules forbidding apologies and refusal words |
+| `prefix_injection` | framing | Dictates an affirmative opening for the reply |
+| `code_wrap` | framing | Payload as a string in a program to "execute" |
+| `many_shot` | framing | Eight fabricated compliant Q/A pairs before the payload |
+| `bon1`…`bonN` | `bon[:N]` | Best-of-N augmentation: word scrambling, random caps, ASCII noise, seeded by attack id |
+
+The report's **Evasion techniques (L4)** table (JSON: `evasion`) gives the ASR per technique across
+families, so you can see which obfuscation your defense misses. In the lab, the `best_of_n` deep
+strategy samples many more variants of the same kind.
 
 Hand-written payloads can still use render placeholders (`{b64:TEXT}`, `{rot13:TEXT}`, …) without
 going through the expander.
@@ -381,7 +400,7 @@ Example seed with default L4 expansion:
     family: prompt_injection_direct
     level: 1
     technique: ignore_override
-    mutations: [default]
+    mutations: [default, framing, "bon:3"]
     mutate_scope: prompt
     severity: high
     detector: canary
