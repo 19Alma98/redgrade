@@ -19,6 +19,7 @@ from redgrade.constants import (
     TEMPLATE_DOCUMENTS,
     TEMPLATE_PROMPT,
 )
+from redgrade.identity import Identity
 from redgrade.oob import OobConfig
 from redgrade.policy import Policy
 from redgrade.runner import RunConfig
@@ -75,6 +76,10 @@ policy:
   require_utility: true
   require_families: [prompt_injection_direct, prompt_injection_indirect, task_utility]
 
+# Identities for access-control attacks (BOLA / BFLA / RBAC): use a test tenant.
+# identity: {{ user_id: "C-1001", victim_id: "C-2002", role: customer, admin_role: admin, victim_data: [] }}
+# Memory attacks start new sessions: map {{{{session_id}}}} in the body / URL / headers if your app uses one.
+
 # Out-of-band collector: a local "attacker" web server for agents that fetch URLs.
 # oob: {{ host: 127.0.0.1, port: 8787, public_url: "http://host.docker.internal:8787", wait: 1.0 }}
 # packs: [my_attacks.yaml]
@@ -97,6 +102,20 @@ class ConfigLoader:
             return self._from_raw(raw)
         except (ValidationError, ValueError, TypeError) as exc:
             raise ConfigError(f"{path}: {exc}") from exc
+
+    @staticmethod
+    def _identity(raw: object) -> Identity:
+        if raw is None:
+            return Identity()
+        if not isinstance(raw, dict):
+            raise ValueError("'identity' must be a mapping")
+        data = {str(k): v for k, v in raw.items()}
+        if "victim_data" in data:
+            items = data["victim_data"] or []
+            if not isinstance(items, list):
+                raise ValueError("'identity.victim_data' must be a list")
+            data["victim_data"] = [str(x) for x in items]
+        return Identity.model_validate({k: v if k == "victim_data" else str(v) for k, v in data.items()})
 
     def _from_raw(self, raw: YamlMapping) -> Config:
         run_raw = raw.get("run") or {}
@@ -123,6 +142,7 @@ class ConfigLoader:
             secrets=[str(s) for s in secrets_raw],
             allowed_hosts=[str(h) for h in hosts_raw],
             max_output_chars=_as_int(limits.get("max_output_chars"), DEFAULT_MAX_OUTPUT_CHARS),
+            identity=self._identity(raw.get("identity")),
         )
         policy_raw = raw.get("policy")
         if policy_raw is None:

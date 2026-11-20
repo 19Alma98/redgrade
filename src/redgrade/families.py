@@ -75,6 +75,13 @@ FAMILIES: tuple[Family, ...] = (
         target_release="0.1",
     ),
     Family(
+        id="output_injection",
+        name="Unsafe output: XSS, SQL, shell, CSV formula and template injection",
+        owasp="LLM05",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.6",
+    ),
+    Family(
         id="resource_abuse",
         name="Unbounded consumption",
         owasp="LLM10",
@@ -118,10 +125,31 @@ FAMILIES: tuple[Family, ...] = (
     ),
     Family(
         id="agent_handoff",
-        name="Multi-chain / handoff injection",
-        owasp="ASI01",
+        name="Multi-chain / handoff injection and insecure inter-agent messages",
+        owasp="ASI01, ASI07",
         status=FAMILY_STATUS_AVAILABLE,
         target_release="0.4",
+    ),
+    Family(
+        id="access_control",
+        name="Broken access control: BOLA, BFLA, RBAC and privilege abuse through the agent",
+        owasp="LLM06, ASI03",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.6",
+    ),
+    Family(
+        id="memory_poisoning",
+        name="Memory and context poisoning that persists across sessions",
+        owasp="ASI06",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.6",
+    ),
+    Family(
+        id="user_manipulation",
+        name="Human-agent trust exploitation: phishing, fake urgency, social engineering of the user",
+        owasp="ASI09",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.6",
     ),
     Family(
         id="jailbreak",

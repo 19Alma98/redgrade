@@ -52,6 +52,8 @@ DETECTOR_TOOL_CALLED: Final = "tool_called"
 DETECTOR_FORBIDDEN_TOOL: Final = "forbidden_tool"
 DETECTOR_TOOL_ARGS_CONTAINS: Final = "tool_args_contains"
 DETECTOR_OOB_CALLBACK: Final = "oob_callback"
+DETECTOR_UNSAFE_OUTPUT: Final = "unsafe_output"
+DETECTOR_ACCESS_VIOLATION: Final = "access_violation"
 
 # --- families (special aggregation) ---------------------------------------------------------
 
@@ -83,9 +85,14 @@ TEMPLATE_HISTORY: Final = "{{history}}"
 TEMPLATE_TOOLS: Final = "{{tools}}"
 TEMPLATE_ATTACHMENTS: Final = "{{attachments}}"
 TEMPLATE_MESSAGES: Final = "{{messages}}"
+TEMPLATE_SESSION_ID: Final = "{{session_id}}"
 SKIP_NO_ATTACHMENTS_SURFACE: Final = (
     "no attachments surface (set upload_field or {{attachments}} on HTTP targets, "
     "or an `attachments` parameter on function targets)"
+)
+SKIP_NO_IDENTITY: Final = (
+    "no tools observation surface and no 'identity.victim_data' configured: "
+    "a cross-user access cannot be detected"
 )
 SKIP_NO_TOOLS_SURFACE: Final = "no tools observation surface (set tools_path on HTTP targets)"
 SKIP_NO_HISTORY_SURFACE: Final = (
@@ -153,7 +160,7 @@ DEFAULT_MUTATIONS: Final[tuple[str, ...]] = (
 # ``bon`` / ``bon:N`` adds N seeded Best-of-N variants).
 MUTATION_PRESETS: Final[dict[str, tuple[str, ...]]] = {
     "encoding": ("b64", "hex", "rot13", "morse", "reverse", "unicode_tags", "emoji_smuggle"),
-    "obfuscation": ("leetspeak", "homoglyph", "zw", "bidi", "split"),
+    "obfuscation": ("leetspeak", "homoglyph", "zw", "bidi", "split", "ascii_art"),
     "framing": (
         "policy_puppetry",
         "refusal_suppression",
@@ -181,10 +188,13 @@ PIPELINE_CI_DISCLOSURE: Final = "ci.disclosure"
 PIPELINE_CI_UTILITY: Final = "ci.utility"
 PIPELINE_CI_ATTACHMENTS: Final = "ci.attachments"
 PIPELINE_CI_OOB: Final = "ci.oob"
+PIPELINE_CI_OUTPUT: Final = "ci.output"
+PIPELINE_CI_AGENT: Final = "ci.agent"
 PIPELINE_LAB_ADAPTIVE: Final = "lab.adaptive_pi"
 DEFAULT_CHECK_PIPELINES: Final[tuple[str, ...]] = (
     PIPELINE_CI_PI,
     PIPELINE_CI_DISCLOSURE,
+    PIPELINE_CI_OUTPUT,
     PIPELINE_CI_UTILITY,
 )
 DEFAULT_DEEP_STRATEGIES: Final[tuple[str, ...]] = ("pair", "crescendo")
@@ -196,6 +206,7 @@ STRATEGY_TAP: Final = "tap"
 STRATEGY_GOAT: Final = "goat"
 STRATEGY_ECHO_CHAMBER: Final = "echo_chamber"
 STRATEGY_BEST_OF_N: Final = "best_of_n"
+STRATEGY_MISCHIEVOUS_USER: Final = "mischievous_user"
 DEEP_STRATEGIES: Final[tuple[str, ...]] = (
     STRATEGY_PAIR,
     STRATEGY_CRESCENDO,
@@ -203,6 +214,7 @@ DEEP_STRATEGIES: Final[tuple[str, ...]] = (
     STRATEGY_GOAT,
     STRATEGY_ECHO_CHAMBER,
     STRATEGY_BEST_OF_N,
+    STRATEGY_MISCHIEVOUS_USER,
 )
 
 # --- report ---------------------------------------------------------------------------------

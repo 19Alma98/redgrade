@@ -376,3 +376,22 @@ def test_version_has_a_single_source():
     import redgrade
 
     assert redgrade.__version__ == "0.4.0"
+
+
+def test_png_pixel_modes_draw_text_and_expose_it_as_ocr_text():
+    import struct
+    import zlib
+
+    for hide, ink in (("visible", 0), ("low_contrast", 0xF2), ("tiny", 0)):
+        att = build_attachment(
+            AttachmentSpec(kind="png", payload="RG-1234ABCD", visible="Receipt", hide=hide)
+        )
+        data = att.data
+        assert data.startswith(b"\x89PNG\r\n\x1a\n")
+        width, height, depth, color = struct.unpack(">IIBB", data[16:26])
+        assert (depth, color) == (8, 0)
+        idat = data[data.index(b"IDAT") + 4 : data.index(b"IEND") - 8]
+        pixels = zlib.decompress(idat)
+        assert len(pixels) == height * (width + 1)
+        assert bytes([ink]) in pixels  # payload ink is actually drawn
+        assert att.text == "Receipt\nRG-1234ABCD" and att.metadata == ""

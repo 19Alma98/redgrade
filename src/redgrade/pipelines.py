@@ -2,9 +2,11 @@ from pydantic import BaseModel, ConfigDict
 
 from redgrade.constants import (
     DEFAULT_CHECK_PIPELINES,
+    PIPELINE_CI_AGENT,
     PIPELINE_CI_ATTACHMENTS,
     PIPELINE_CI_DISCLOSURE,
     PIPELINE_CI_OOB,
+    PIPELINE_CI_OUTPUT,
     PIPELINE_CI_PI,
     PIPELINE_CI_UTILITY,
     PIPELINE_LAB_ADAPTIVE,
@@ -13,9 +15,11 @@ from redgrade.constants import (
 # Re-export for callers / tests that import pipeline ids from this module.
 __all__ = [
     "DEFAULT_CHECK_PIPELINES",
+    "PIPELINE_CI_AGENT",
     "PIPELINE_CI_ATTACHMENTS",
     "PIPELINE_CI_DISCLOSURE",
     "PIPELINE_CI_OOB",
+    "PIPELINE_CI_OUTPUT",
     "PIPELINE_CI_PI",
     "PIPELINE_CI_UTILITY",
     "PIPELINE_LAB_ADAPTIVE",
@@ -40,6 +44,7 @@ _REGISTRY: dict[str, PipelineSpec] = {
             "prompt_injection_indirect",
             "multi_turn",
             "history_injection",
+            "memory_poisoning",
         ),
     ),
     PIPELINE_CI_DISCLOSURE: PipelineSpec(
@@ -49,6 +54,19 @@ _REGISTRY: dict[str, PipelineSpec] = {
     PIPELINE_CI_ATTACHMENTS: PipelineSpec(
         id=PIPELINE_CI_ATTACHMENTS,
         families=("file_attachments",),
+    ),
+    PIPELINE_CI_OUTPUT: PipelineSpec(
+        id=PIPELINE_CI_OUTPUT,
+        families=("output_handling", "output_injection", "user_manipulation"),
+    ),
+    PIPELINE_CI_AGENT: PipelineSpec(
+        id=PIPELINE_CI_AGENT,
+        families=(
+            "agent_goal_hijack",
+            "mcp_attacks",
+            "agent_handoff",
+            "access_control",
+        ),
     ),
     PIPELINE_CI_OOB: PipelineSpec(
         id=PIPELINE_CI_OOB,

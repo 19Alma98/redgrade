@@ -58,6 +58,8 @@ class AttackTurn(BaseModel):
     prompt: str
     documents: tuple[str, ...] = ()
     attachments: tuple[AttachmentSpec, ...] = ()
+    # Start a new conversation before this turn: no history is sent and ``{{session_id}}`` changes.
+    new_session: bool = False
 
 
 class HistoryTurn(BaseModel):

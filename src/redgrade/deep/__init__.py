@@ -5,7 +5,17 @@ from redgrade.deep.errors import DeepError
 from redgrade.deep.llm_target import LlmTarget
 from redgrade.deep.meta import DeepMeta
 
-__all__ = ["DeepError", "DeepMeta", "LlmTarget", "check_deep", "deep_attack", "summarize_scorecard"]
+__all__ = [
+    "DeepError",
+    "DeepMeta",
+    "LlmTarget",
+    "check_deep",
+    "deep_attack",
+    "generate_attacks",
+    "summarize_scorecard",
+    "translate_attacks",
+    "write_pack",
+]
 
 
 def __getattr__(name: str) -> Callable[..., Any]:
@@ -17,6 +27,10 @@ def __getattr__(name: str) -> Callable[..., Any]:
         from redgrade.deep.sdk import check_deep
 
         return check_deep
+    if name in ("generate_attacks", "translate_attacks", "write_pack"):
+        from redgrade.deep import generate
+
+        return getattr(generate, name)  # type: ignore[no-any-return]
     if name == "summarize_scorecard":
         from redgrade.deep.summary import summarize_scorecard
 

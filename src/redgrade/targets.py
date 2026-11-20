@@ -42,6 +42,7 @@ from redgrade.constants import (
     TEMPLATE_HISTORY,
     TEMPLATE_MESSAGES,
     TEMPLATE_PROMPT,
+    TEMPLATE_SESSION_ID,
     TEMPLATE_TOOLS,
     ChatApi,
 )
@@ -54,6 +55,7 @@ from redgrade.history import (
     openai_tools,
 )
 from redgrade.models import TargetObservation, ToolCall
+from redgrade.session import current_session_id
 from redgrade.types import HistoryMessage, JsonValue, YamlMapping
 
 TargetResult = str | TargetObservation
@@ -163,6 +165,12 @@ def invoke_target(
         if not target_accepts_attachments(target):
             raise TargetError("target has no attachments surface")
         extra["attachments"] = attachments
+    if getattr(target, "_redgrade_accepts_history", None) is None and not isinstance(target, HttpTarget):
+        try:
+            if "session_id" in inspect.signature(target).parameters:
+                extra["session_id"] = current_session_id()
+        except (TypeError, ValueError):
+            pass
     if isinstance(target, HttpTarget):
         return target(prompt, documents, history, tools, **extra)  # type: ignore[arg-type]
     if getattr(target, "_redgrade_observes_tools", None) is not None:
@@ -194,11 +202,12 @@ def wrap_function(func: Callable[..., object]) -> Target:
     params = list(inspect.signature(func).parameters.values())
     names = {p.name for p in params}
     accepts_attachments = "attachments" in names
-    core = [p for p in params if p.name != "attachments"]
+    core = [p for p in params if p.name not in ("attachments", "session_id")]
     accepts_docs = any(p.kind is p.VAR_POSITIONAL for p in core) or len(core) >= 2
     accepts_docs = accepts_docs or any(p.name == "documents" for p in params)
     accepts_history = "history" in names or len(core) >= 3
     accepts_tools = "tools" in names
+    accepts_session = "session_id" in names
 
     def call(
         prompt: str,
@@ -212,6 +221,8 @@ def wrap_function(func: Callable[..., object]) -> Target:
         kwargs: dict[str, object] = {}
         if accepts_tools:
             kwargs["tools"] = tools
+        if accepts_session:
+            kwargs["session_id"] = current_session_id()
         if accepts_attachments:
             kwargs["attachments"] = attachments or []
         elif attachments:
@@ -283,6 +294,7 @@ def _fill(
             .replace(TEMPLATE_HISTORY, format_history(history))
             .replace(TEMPLATE_MESSAGES, format_history([*history, {"role": "user", "content": prompt}]))
             .replace(TEMPLATE_TOOLS, json.dumps(tools, ensure_ascii=False))
+            .replace(TEMPLATE_SESSION_ID, current_session_id())
         )
     if isinstance(node, list):
         return [_fill(x, prompt, documents, history, tools, attachments) for x in node]
@@ -381,9 +393,21 @@ class HttpTarget:
     def observes_tools(self) -> bool:
         return bool(self.tools_path)
 
+    @property
+    def has_sessions(self) -> bool:
+        """``{{session_id}}`` appears in the URL, headers or body."""
+        return (
+            TEMPLATE_SESSION_ID in self.url
+            or any(TEMPLATE_SESSION_ID in v for v in self.headers.values())
+            or _contains_template(self.body, TEMPLATE_SESSION_ID)
+        )
+
     def _send(self, payload: JsonValue, attachments: list[Attachment]) -> httpx2.Response:
+        sid = current_session_id()
+        url = self.url.replace(TEMPLATE_SESSION_ID, sid)
+        headers = {k: v.replace(TEMPLATE_SESSION_ID, sid) for k, v in self.headers.items()}
         if not self.upload_field:
-            return self._client.post(self.url, json=payload, headers=self.headers)
+            return self._client.post(url, json=payload, headers=headers)
         # Always multipart when ``upload_field`` is set, so an endpoint that only reads
         # multipart also works for attacks without files. ``(None, value)`` is a plain form field.
         parts: list[tuple[str, tuple[str | None, bytes | str, str] | tuple[None, str]]] = []
@@ -392,8 +416,8 @@ class HttpTarget:
             parts.append((key, (None, text)))
         for att in attachments:
             parts.append((self.upload_field, (att.filename, att.data, att.content_type)))
-        headers = {k: v for k, v in self.headers.items() if k.lower() != "content-type"}
-        return self._client.post(self.url, files=parts, headers=headers)
+        headers = {k: v for k, v in headers.items() if k.lower() != "content-type"}
+        return self._client.post(url, files=parts, headers=headers)
 
     def __call__(
         self,

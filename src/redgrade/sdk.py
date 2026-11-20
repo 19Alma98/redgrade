@@ -19,11 +19,13 @@ from redgrade.baseline import (
 )
 from redgrade.constants import (
     DEFAULT_CHECK_PIPELINES,
+    PIPELINE_CI_AGENT,
     PIPELINE_CI_ATTACHMENTS,
     PIPELINE_CI_OOB,
     PIPELINE_CI_UTILITY,
 )
 from redgrade.deep.meta import DeepMeta
+from redgrade.identity import Identity
 from redgrade.levels import LevelPosture, LevelScorer
 from redgrade.loader import load_attacks
 from redgrade.models import AttackResult, RunResult
@@ -34,7 +36,7 @@ from redgrade.report import to_dict, to_markdown
 from redgrade.runner import RunConfig, run_attacks
 from redgrade.scorecard import Scorecard, build_scorecard, scorecard_markdown
 from redgrade.scoring import PiScorer
-from redgrade.targets import HttpTarget, Target
+from redgrade.targets import HttpTarget, Target, target_observes_tools
 from redgrade.types import ReportDict
 from redgrade.utility import attack_results, utility_rate
 
@@ -305,6 +307,7 @@ def attack(
     max_output_chars: int | None = None,
     baseline: Baseline | str | Path | None = None,
     oob: OobServer | bool | None = None,
+    identity: Identity | dict[str, object] | None = None,
 ) -> AttackReport:
     """Run attacks against an HTTP app endpoint and return an ``AttackReport``.
 
@@ -326,6 +329,8 @@ def attack(
         kwargs["allowed_hosts"] = allowed_hosts
     if max_output_chars is not None:
         kwargs["max_output_chars"] = max_output_chars
+    if identity is not None:
+        kwargs["identity"] = identity if isinstance(identity, Identity) else Identity.model_validate(identity)
     run_config = RunConfig(**kwargs) if kwargs else RunConfig()
 
     return run_pipeline(
@@ -353,6 +358,7 @@ def check(
     max_output_chars: int | None = None,
     baseline: Baseline | str | Path | None = None,
     oob: OobServer | bool | None = None,
+    identity: Identity | dict[str, object] | None = None,
 ) -> AttackReport:
     """Run CI pipeline checks against an HTTP app endpoint.
 
@@ -370,6 +376,8 @@ def check(
             pipelines.append(PIPELINE_CI_ATTACHMENTS)
         if oob:
             pipelines.append(PIPELINE_CI_OOB)
+        if target_observes_tools(target):
+            pipelines.append(PIPELINE_CI_AGENT)
     specs = resolve_pipelines(pipelines, disable)
     ci_specs = [s for s in specs if not s.lab]
     if not ci_specs:
@@ -388,6 +396,8 @@ def check(
         kwargs["allowed_hosts"] = allowed_hosts
     if max_output_chars is not None:
         kwargs["max_output_chars"] = max_output_chars
+    if identity is not None:
+        kwargs["identity"] = identity if isinstance(identity, Identity) else Identity.model_validate(identity)
     run_config = RunConfig(**kwargs) if kwargs else RunConfig()
 
     policy = policy or Policy()
