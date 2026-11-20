@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 from typing import cast
 
+from redgrade.compliance import build_compliance, compliance_markdown
 from redgrade.constants import (
     FAMILY_STATUS_AVAILABLE,
     FAMILY_TASK_UTILITY,
@@ -182,6 +183,7 @@ class ReportBuilder:
             "security_level": cast(dict[str, JsonValue], self._level_posture(run, policy).to_dict()),
             "utility_overall": utility_rate(run),
             "evasion": evasion_stats(run),
+            "compliance": cast(dict[str, JsonValue], build_compliance(run).to_dict()),
         }
 
     def to_json(self, run: RunResult, checks: list[Check], policy: Policy | None = None) -> str:
@@ -205,6 +207,8 @@ class ReportBuilder:
                 lines.append(f"| {c.name} | {int(c.value)} attack(s) ran | >= 1 | {mark} |")
             elif c.name.startswith("utility."):
                 lines.append(f"| {c.name} | {_pct(c.value)} | >= {_pct(c.limit)} | {mark} |")
+            elif c.name.startswith("compliance."):
+                lines.append(f"| {c.name} | {int(c.value)} control(s) not run | 0 | {mark} |")
             elif c.name.startswith("baseline."):
                 lines.append(f"| {c.name} | {int(c.value)} | <= {int(c.limit)} | {mark} |")
             elif c.name.startswith("level."):
@@ -255,6 +259,7 @@ class ReportBuilder:
                 callbacks = [h for h in first.oob_hits if h.kind == OOB_HIT_CALLBACK]
                 lines += [f"  - callback received: `{h.method} {h.path}`" for h in callbacks[:3]]
 
+        lines += compliance_markdown(build_compliance(run))
         lines += self._advisory_markdown(run)
 
         if run.skipped:

@@ -17,6 +17,7 @@ from redgrade.baseline import (
     baseline_markdown,
     compare,
 )
+from redgrade.compliance import ComplianceReport, build_compliance
 from redgrade.constants import (
     DEFAULT_CHECK_PIPELINES,
     PIPELINE_CI_AGENT,
@@ -66,6 +67,10 @@ class AttackReport(BaseModel):
     baseline: BaselineComparison | None = None
     grade: str | None = None
     security_score: int | None = None
+
+    def compliance(self, frameworks: list[str] | None = None) -> ComplianceReport:
+        """Per-control status for OWASP LLM / Agentic, MITRE ATLAS, NIST AI RMF, EU AI Act."""
+        return build_compliance(self.run, frameworks)
 
     def scorecard(self) -> Scorecard:
         """Per-family and overall score with 95% ranges and a letter grade."""

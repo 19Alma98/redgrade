@@ -329,6 +329,30 @@ def _cmd_distill(args: argparse.Namespace) -> int:
     return 0 if changed or not results else 1
 
 
+def _cmd_compliance(args: argparse.Namespace) -> int:
+    """Which framework controls redgrade's attack families map to (no run)."""
+    from redgrade.compliance import FAMILY_CONTROLS, FRAMEWORKS
+
+    selected = args.framework or list(FRAMEWORKS)
+    unknown = [f for f in selected if f not in FRAMEWORKS]
+    if unknown:
+        print(f"unknown framework(s): {', '.join(unknown)} (known: {', '.join(FRAMEWORKS)})", file=sys.stderr)
+        return 2
+    for fw_id in selected:
+        fw = FRAMEWORKS[fw_id]
+        print(f"\n{fw.name}  [{fw.id}]")
+        for control in fw.controls:
+            fams = sorted(f for f, m in FAMILY_CONTROLS.items() if control.id in m.get(fw_id, ()))
+            if not control.in_scope:
+                cover = "out of scope (inside threat: use dedicated tools)"
+            else:
+                cover = ", ".join(fams) if fams else "not covered"
+            print(f"  {control.id:<15}{control.name:<48}{cover}")
+        if fw.note:
+            print(f"  note: {fw.note}")
+    return 0
+
+
 def _cmd_translate(args: argparse.Namespace) -> int:
     """Lab: add translated (L4) variants of a pack's attacks, frozen for CI."""
     from redgrade.deep.errors import DeepError
@@ -555,6 +579,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--attacker-model", help="LiteLLM model that writes the rubrics")
     p.add_argument("--attacker-api-base")
     p.set_defaults(func=_cmd_distill)
+
+    p = sub.add_parser("compliance", help="show which framework controls the attack families cover")
+    p.add_argument("--framework", action="append", help="owasp_llm_2025, owasp_asi_2026, mitre_atlas, ...")
+    p.set_defaults(func=_cmd_compliance)
 
     p = sub.add_parser("translate", help="lab: add translated (L4) variants of a pack's attacks")
     p.add_argument("pack", help="pack YAML to translate")

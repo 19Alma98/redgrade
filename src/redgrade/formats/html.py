@@ -3,6 +3,7 @@
 from html import escape
 
 from redgrade.baseline import BaselineComparison, bad_count
+from redgrade.compliance import build_compliance
 from redgrade.constants import PI_LEVEL_WEIGHTS, SEVERITIES
 from redgrade.formats._common import finding_message, findings
 from redgrade.levels import LevelScorer, level_label
@@ -59,7 +60,7 @@ def _td(text: str, cls: str = "") -> str:
 def _gate(checks: list[Check]) -> str:
     rows = []
     for c in checks:
-        if c.name.startswith(("coverage.", "baseline.")):
+        if c.name.startswith(("coverage.", "baseline.", "compliance.")):
             value, limit = (
                 f"{int(c.value)}",
                 f"{'>=' if c.name.startswith('coverage.') else '<='} {int(c.limit)}",
@@ -75,6 +76,26 @@ def _gate(checks: list[Check]) -> str:
         mark = ("ok", "pass") if c.passed else ("FAIL", "fail")
         rows.append([_td(c.name), _td(value, "num"), _td(limit, "num"), _td(mark[0], mark[1])])
     return _table(["check", "value", "limit", ""], rows, frozenset({1, 2}))
+
+
+_STATUS_CLASS = {"resisted": "pass", "vulnerable": "fail"}
+
+
+def _compliance(run: RunResult) -> str:
+    out = []
+    for fw in build_compliance(run).frameworks:
+        out.append(f"<h3>{escape(fw.name)}</h3>")
+        rows = [
+            [
+                _td(f"{c.id} {c.name}"),
+                _td(c.status.replace("_", " "), _STATUS_CLASS.get(c.status, "muted")),
+                _td(_pct(c.asr), f"num {_cell_class(c.asr)}"),
+                _td(", ".join(c.vulnerable_attacks[:4]) or ", ".join(c.families)),
+            ]
+            for c in fw.controls
+        ]
+        out.append(_table(["control", "status", "ASR", "evidence"], rows, frozenset({2})))
+    return "".join(out)
 
 
 def _levels(run: RunResult, max_asr_by_level: dict[int, float] | None) -> str:
@@ -206,6 +227,13 @@ def to_html(
         parts.append(_table(["attack", "severity", "OWASP", "trials", "detail"], rows, frozenset({3})))
     else:
         parts.append('<p class="muted">No attack succeeded in these trials.</p>')
+
+    parts.append("<h2>Compliance view</h2>")
+    parts.append(
+        '<p class="muted">Test evidence per framework control: resisted = the mapped attacks did not '
+        "work in these trials (not a certification).</p>"
+    )
+    parts.append(_compliance(run))
 
     if run.skipped:
         rows = [[_td(r.attack.id), _td(r.skipped_reason or "")] for r in run.skipped]

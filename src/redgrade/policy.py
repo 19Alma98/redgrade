@@ -6,6 +6,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from redgrade.baseline import BaselineComparison, BaselinePolicy
+from redgrade.compliance import FRAMEWORKS, build_compliance
 from redgrade.constants import (
     DEFAULT_CRITICAL_ASR_LIMIT,
     DEFAULT_MAX_ASR,
@@ -47,6 +48,8 @@ class Policy(BaseModel):
     ``min_family_level``        the same per family, e.g. ``{"prompt_injection_indirect": 3}``
     ``max_asr_by_level``        tolerated ASR per level (default 0); used by the level ladders and
                                 as per-level gates
+    ``require_compliance``      frameworks (e.g. ``owasp_llm_2025``) whose every control redgrade
+                                can test must have run (see ``redgrade.compliance``)
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -66,6 +69,15 @@ class Policy(BaseModel):
     min_family_score: dict[str, int] = Field(default_factory=dict)
     min_security_level: int | None = None
     min_family_level: dict[str, int] = Field(default_factory=dict)
+    require_compliance: list[str] = Field(default_factory=list)
+
+    @field_validator("require_compliance")
+    @classmethod
+    def _known_frameworks(cls, value: list[str]) -> list[str]:
+        unknown = [f for f in value if f not in FRAMEWORKS]
+        if unknown:
+            raise ValueError(f"unknown frameworks {unknown} (known: {', '.join(FRAMEWORKS)})")
+        return value
 
     @field_validator("min_security_score")
     @classmethod
@@ -345,6 +357,19 @@ class PolicyEvaluator:
                         value=float(got if got is not None else 0),
                         limit=float(limit),
                         passed=got is not None and got >= limit,
+                    )
+                )
+
+        if policy.require_compliance:
+            report = build_compliance(run, policy.require_compliance)
+            for fw in report.frameworks:
+                missing = fw.untested
+                checks.append(
+                    Check(
+                        name=f"compliance.{fw.id}",
+                        value=float(len(missing)),
+                        limit=0.0,
+                        passed=not missing,
                     )
                 )
 

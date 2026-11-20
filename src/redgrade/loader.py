@@ -37,6 +37,11 @@ class PackLoader:
             extra["level"] = raw["level"]
         if "technique" in raw:
             extra["technique"] = str(raw["technique"])
+        if "compliance" in raw:
+            comp = raw["compliance"]
+            if not isinstance(comp, dict) or not all(isinstance(v, list) for v in comp.values()):
+                raise PackError(f"{origin}: {attack_id}: compliance must map framework -> list of controls")
+            extra["compliance"] = {str(k): tuple(str(x) for x in v) for k, v in comp.items()}
         if "advisory" in raw:
             extra["advisory"] = bool(raw["advisory"])
         if "mutate_scope" in raw:

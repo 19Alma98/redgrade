@@ -150,6 +150,9 @@ class Attack(BaseModel):
     description: str = ""
     # Advisory attacks are reported but never gated (also implied by a heuristic detector).
     advisory: bool = False
+    # Extra framework controls for this attack, on top of its family's (see redgrade.compliance),
+    # e.g. {"mitre_atlas": ["AML.T0054"]}.
+    compliance: dict[str, tuple[str, ...]] = Field(default_factory=dict)
 
     @property
     def has_attachments(self) -> bool:
