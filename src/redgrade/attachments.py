@@ -379,12 +379,12 @@ def _text_png(blocks: list[tuple[str, int, int]]) -> bytes:
     blank = bytes([_PNG_PAPER]) * width
     scan = [b"\x00" + blank] * _PNG_MARGIN
     for cells, scale, ink in rows:
-        line = bytearray(blank)
+        pixels = bytearray(blank)
         for x, on in enumerate(cells):
             if on:
                 start = _PNG_MARGIN + x * scale
-                line[start : start + scale] = bytes([ink]) * scale
-        scan.append(b"\x00" + bytes(line))
+                pixels[start : start + scale] = bytes([ink]) * scale
+        scan.append(b"\x00" + bytes(pixels))
     scan += [b"\x00" + blank] * _PNG_MARGIN
     height = len(scan)
     chunks = [
