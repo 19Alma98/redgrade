@@ -13,10 +13,17 @@ from pathlib import Path
 from redgrade import __version__
 from redgrade.baseline import DEFAULT_BASELINE_PATH, BaselineError
 from redgrade.config import EXAMPLE, Config, ConfigError, load_config
-from redgrade.constants import DEFAULT_CONFIG_PATH, FAMILY_STATUS_AVAILABLE, FAMILY_TASK_UTILITY
+from redgrade.constants import (
+    DEEP_STRATEGIES,
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_MUTATIONS,
+    FAMILY_STATUS_AVAILABLE,
+    FAMILY_TASK_UTILITY,
+)
 from redgrade.families import FAMILIES
 from redgrade.loader import PackError, load_attacks
 from redgrade.models import AttackResult
+from redgrade.mutations import available_mutations
 from redgrade.oob import OobServer
 from redgrade.render import render_attack, render_history, render_turns
 from redgrade.runner import new_canary
@@ -60,6 +67,11 @@ def _cmd_list(args: argparse.Namespace) -> int:
         else:
             status = f"planned v{f.target_release}"
         print(f"  {f.id:<28}{f.owasp:<14}{status}")
+    print("\nmutations (attack `mutations:` list; derived attacks are L4):")
+    for name, kinds in available_mutations().items():
+        print(f"  {name:<12}{', '.join(kinds)}")
+    print(f"  {'default':<12}{', '.join(DEFAULT_MUTATIONS)}")
+    print(f"\ndeep strategies (redgrade deep --strategy): {', '.join(DEEP_STRATEGIES)}")
     return 0
 
 
@@ -179,6 +191,8 @@ def _cmd_deep(args: argparse.Namespace) -> int:
         )
     if args.max_rounds is not None:
         config = config.model_copy(update={"max_rounds": args.max_rounds})
+    if args.strategy:
+        config = config.model_copy(update={"strategies": list(args.strategy)})
     try:
         target = build_deep_target(config.target)
         report = deep_attack(
@@ -195,6 +209,7 @@ def _cmd_deep(args: argparse.Namespace) -> int:
             detector=config.detector,
             judge_model=config.judge.model,
             judge_api_base=config.judge.api_base,
+            strategies=config.strategies or None,
         )
     except DeepError as exc:
         print(str(exc), file=sys.stderr)
@@ -326,6 +341,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", "-c", required=True, help="deep config YAML")
     p.add_argument("--attacker-model", help="override attacker.model")
     p.add_argument("--max-rounds", type=int, help="override max_rounds")
+    p.add_argument(
+        "--strategy",
+        action="append",
+        choices=DEEP_STRATEGIES,
+        help="adaptive strategy (repeatable; overrides `strategies:` in the config)",
+    )
     p.add_argument("--report", help="write the Markdown report to this file")
     p.add_argument(
         "--export-wins",

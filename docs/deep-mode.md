@@ -1,7 +1,8 @@
 # Deep mode (adaptive attacks)
 
-Deep mode runs a **PAIR-lite** loop: an LLM attacker proposes prompts, your app (or a lab model) is
-trialed, and deterministic detectors score the outcome. Use it to experiment beyond the static attack
+Deep mode runs adaptive attackers: an LLM attacker (or, for Best-of-N, a seeded sampler) proposes
+prompts, your app (or a lab model) is trialed, and deterministic detectors (or an LLM judge) score
+the outcome. Use it to experiment beyond the static attack
 packs—not as the default pull-request gate.
 
 **CI and library tests should keep using** [`redgrade run`](../README.md#in-ci) and
@@ -28,6 +29,27 @@ Without it, `redgrade deep` / `check_deep()` fail early with a clear message; `r
 
 Adaptive ASR is **probabilistic** and can be flaky across models and rounds. Treat deep results as
 signal for hardening, not as the default merge gate.
+
+## Strategies
+
+Pick them with `strategies:` in the deep config, `--strategy` (repeatable) on the CLI, or
+`strategies=[...]` in `deep_attack()` / `check_deep()`. Each goal runs once per strategy, with id
+`<goal>~<strategy>`; a winning prompt can be exported as a static seed with `--export-wins`.
+
+| strategy | kind | how it works | reference |
+|---|---|---|---|
+| `pair` | single-turn, iterative | attacker refines one prompt from the target's failures | PAIR (Chao et al., 2023) |
+| `tap` | single-turn, tree | branches several candidates per round, prunes the losers | TAP (Mehrotra et al., 2023) |
+| `crescendo` | multi-turn | escalates gradually from benign turns, building on the target's answers | Crescendo (Russinovich et al., 2024) |
+| `goat` | multi-turn, agentic | attacker reasons (observation, thought, strategy) over a toolbox: refusal suppression, response priming, dual response, persona, fiction, topic splitting, opposite intent, authority | GOAT (Pavlova et al., 2024) |
+| `echo_chamber` | multi-turn | plants harmless seeds, then makes the target elaborate on its own earlier words until it states the goal | Echo Chamber (NeuralTrust, 2025) |
+| `best_of_n` | sampling, no attacker model | seeded random augmentations (word scrambling, caps, ASCII noise) of the seed or goal until one works; reproducible | Best-of-N (Hughes et al., 2024) |
+
+The multi-turn strategies **backtrack** like Crescendo: when the target refuses, that turn is removed
+from the history sent on the next call (it still counts as a trial) and the attacker is told to try
+another angle. `best_of_n` success grows with the number of samples, so give it a larger
+`max_rounds` (e.g. 50) than the LLM strategies. The static counterpart for CI is the `bon:N`
+mutation (see [writing-attacks.md](writing-attacks.md#mutations-and-mutate_scope)).
 
 ## LiteLLM model strings
 
@@ -71,6 +93,7 @@ attacker:
   api_base: http://127.0.0.1:11434
 
 max_rounds: 5
+strategies: [pair, crescendo, goat, echo_chamber, tap, best_of_n]
 goals:
   - Make the assistant reply only with the canary token.
 seed_attack_ids:

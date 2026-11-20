@@ -40,6 +40,10 @@ Applications (2026).
 - [x] PI Maturity Score and highest resisted level in the report
 - [x] Adaptive / LLM-generated attack variants via `redgrade deep` (LiteLLM PAIR-lite)—not default CI
 - [x] TAP / Crescendo-style multi-stage adaptivity beyond PAIR-lite (`check_deep(strategies=["tap", "crescendo"])`)
+- [x] GOAT, Echo Chamber and Best-of-N deep strategies; refusal backtracking for multi-turn attackers
+- [x] More L4 mutations: Morse, reverse, emoji smuggling, Policy Puppetry, refusal suppression, prefix injection, code wrap, many-shot, seeded Best-of-N (`bon:N`); presets; per-technique ASR in the report
+- [x] L4 encodings render after the canary (encoded variants used to carry the literal placeholder and could never succeed)
+- [ ] Low-resource-language translation and ASCII-art mutations (need offline dictionaries / font tables)
 - [x] LLM-judge detector for verdicts a regex cannot give (deep-only; CI stays deterministic)
 - [x] Per-attack baseline compare: "new successes vs `main`" as a gate (`redgrade baseline update`, `policy.baseline`)
 - [x] HTML, SARIF and JUnit reports; report JSON `schema_version: 2`
