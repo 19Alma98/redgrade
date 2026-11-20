@@ -293,6 +293,42 @@ def _cmd_translate(args: argparse.Namespace) -> int:
     return 0 if n else 1
 
 
+def _cmd_import_dataset(args: argparse.Namespace) -> int:
+    """Convert a dataset file (AdvBench, HarmBench, JailbreakBench, CSV / JSONL) into a pack."""
+    from redgrade.datasets import DatasetError, import_dataset
+    from redgrade.packio import write_pack
+
+    try:
+        attacks = import_dataset(
+            args.dataset,
+            preset=args.preset,
+            prompt_field=args.prompt_field,
+            document_field=args.document_field,
+            id_field=args.id_field,
+            target_field=args.target_field,
+            family=args.family,
+            detector=args.detector,
+            severity=args.severity,
+            level=args.level,
+            id_prefix=args.id_prefix,
+            limit=args.limit,
+        )
+    except DatasetError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    by_family: dict[str, list[dict[str, object]]] = {}
+    for attack in attacks:
+        by_family.setdefault(str(attack.pop("family")), []).append(attack)
+    n = write_pack(
+        args.out, by_family, header=f"Imported from {Path(args.dataset).name} by `redgrade import-dataset`."
+    )
+    judged = sum(1 for a in attacks if a["detector"] == "llm_judge")
+    print(f"wrote {n} attack(s) to {args.out}", file=sys.stderr)
+    if judged:
+        print(f"{judged} attack(s) use llm_judge: they run only in `redgrade deep`", file=sys.stderr)
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     """Write the attacks as an OpenGrade dataset (JSONL): one row per attack, fixed canary."""
     attacks = load_attacks(extra_packs=args.pack, families=args.family or None)
@@ -448,6 +484,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--attacker-model", help="LiteLLM model string")
     p.add_argument("--attacker-api-base", help="attacker API base URL")
     p.set_defaults(func=_cmd_translate)
+
+    p = sub.add_parser("import-dataset", help="convert a red-teaming dataset (CSV / JSONL) into a pack")
+    p.add_argument("dataset", help="dataset file (.csv, .tsv, .jsonl, .json)")
+    p.add_argument("--preset", choices=["advbench", "jailbreakbench", "harmbench"])
+    p.add_argument("--prompt-field", help="column with the attack prompt")
+    p.add_argument("--document-field", help="column with context passed as a document")
+    p.add_argument("--id-field", help="column with a stable id")
+    p.add_argument("--target-field", help="column with the expected affirmative prefix")
+    p.add_argument("--family", help="attack family (default: jailbreak, opt-in)")
+    p.add_argument("--detector", help="override the detector (canary, contains, llm_judge, ...)")
+    p.add_argument("--severity", default="high")
+    p.add_argument("--level", type=int, default=1, choices=[1, 2, 3, 4, 5])
+    p.add_argument("--id-prefix", default="DS")
+    p.add_argument("--limit", type=int, help="import at most this many rows")
+    p.add_argument("--out", "-o", required=True, help="pack YAML to write")
+    p.set_defaults(func=_cmd_import_dataset)
 
     p = sub.add_parser("export-dataset", help="export attacks as an OpenGrade JSONL dataset")
     p.add_argument("output")
