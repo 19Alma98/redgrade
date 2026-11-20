@@ -1,13 +1,16 @@
 """Targets: the thing under attack.
 
 A target is a callable ``(prompt, documents, history, tools=?) -> str | TargetObservation``.
-Two adapters ship with Redgrade:
+Three adapters ship with Redgrade:
 
 * ``module:function`` -- a Python function. It may take ``(prompt)`` or ``(prompt, documents)``
   (and optional ``history`` / ``tools``).
 * ``http`` -- any endpoint that takes JSON and returns JSON. Optional ``tools_path`` extracts
   tool calls from the response into a ``TargetObservation``. Files are sent either as multipart
-  (``upload_field``) or as base64 JSON (``{{attachments}}`` in the body).
+  (``upload_field``) or as base64 JSON (``{{attachments}}`` in the body). ``{{history}}`` sends
+  prior turns, ``{{messages}}`` the whole conversation including the current prompt.
+* ``chat`` -- an OpenAI- or Anthropic-compatible messages endpoint (``ChatTarget``): history with
+  every role, tool catalogs and tool calls go through the API's native fields.
 """
 
 import importlib
@@ -24,18 +27,33 @@ from pydantic import BaseModel, Field
 
 from redgrade.attachments import Attachment
 from redgrade.constants import (
+    CHAT_API_ANTHROPIC,
+    CHAT_API_OPENAI,
+    DEFAULT_ANTHROPIC_MAX_TOKENS,
+    DEFAULT_ANTHROPIC_VERSION,
+    DEFAULT_CHAT_DOCUMENTS_TEMPLATE,
     DEFAULT_HTTP_RESPONSE_PATH,
     DEFAULT_HTTP_TIMEOUT,
+    TARGET_TYPE_CHAT,
     TARGET_TYPE_FUNCTION,
     TARGET_TYPE_HTTP,
     TEMPLATE_ATTACHMENTS,
     TEMPLATE_DOCUMENTS,
     TEMPLATE_HISTORY,
+    TEMPLATE_MESSAGES,
     TEMPLATE_PROMPT,
     TEMPLATE_TOOLS,
+    ChatApi,
+)
+from redgrade.history import (
+    anthropic_messages,
+    anthropic_tools,
+    format_history,
+    normalize_history,
+    openai_messages,
+    openai_tools,
 )
 from redgrade.models import TargetObservation, ToolCall
-from redgrade.render import format_history
 from redgrade.types import HistoryMessage, JsonValue, YamlMapping
 
 TargetResult = str | TargetObservation
@@ -62,7 +80,22 @@ class HttpTargetConfig(BaseModel):
     timeout: float = DEFAULT_HTTP_TIMEOUT
 
 
-TargetConfig = Annotated[FunctionTargetConfig | HttpTargetConfig, Field(discriminator="type")]
+class ChatTargetConfig(BaseModel):
+    type: Literal["chat"] = "chat"
+    url: str
+    api: ChatApi = CHAT_API_OPENAI
+    model: str | None = None
+    system_prompt: str | None = None
+    system_role: str = "system"
+    documents_template: str = DEFAULT_CHAT_DOCUMENTS_TEMPLATE
+    extra_body: dict[str, JsonValue] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
+    timeout: float = DEFAULT_HTTP_TIMEOUT
+
+
+TargetConfig = Annotated[
+    FunctionTargetConfig | HttpTargetConfig | ChatTargetConfig, Field(discriminator="type")
+]
 
 
 def normalize_observation(result: TargetResult) -> TargetObservation:
@@ -84,8 +117,21 @@ def _callable_accepts_tools(target: object) -> bool:
 def target_observes_tools(target: object) -> bool:
     """HTTP targets need ``tools_path``; function targets need a ``tools`` parameter."""
     if isinstance(target, HttpTarget):
-        return bool(target.tools_path)
+        return target.observes_tools
     return _callable_accepts_tools(target)
+
+
+def target_accepts_history(target: object) -> bool:
+    """Can the target receive conversation history natively (not flattened into the prompt)?
+
+    HTTP targets need ``{{history}}`` or ``{{messages}}`` in the body; chat targets always can;
+    wrapped functions need a ``history`` parameter. Plain callables are always called with
+    history as the third argument, so they can.
+    """
+    if isinstance(target, HttpTarget):
+        return target.accepts_history
+    flag = getattr(target, "_redgrade_accepts_history", None)
+    return True if flag is None else bool(flag)
 
 
 def target_accepts_attachments(target: object) -> bool:
@@ -188,6 +234,7 @@ def wrap_function(func: Callable[..., object]) -> Target:
 
     call._redgrade_observes_tools = accepts_tools  # type: ignore[attr-defined]
     call._redgrade_accepts_attachments = accepts_attachments  # type: ignore[attr-defined]
+    call._redgrade_accepts_history = accepts_history  # type: ignore[attr-defined]
     return call
 
 
@@ -216,20 +263,25 @@ def _fill(
     tools: list[JsonValue],
     attachments: list[Attachment] | None = None,
 ) -> JsonValue:
-    """Replace ``{{prompt}}``, ``{{documents}}``, ``{{history}}``, ``{{tools}}``, ``{{attachments}}``."""
+    """Replace ``{{prompt}}``, ``{{documents}}``, ``{{history}}``, ``{{messages}}``, ``{{tools}}``,
+    ``{{attachments}}``. ``{{messages}}`` is the history plus the current user prompt."""
     if isinstance(node, str):
         if node == TEMPLATE_ATTACHMENTS:
             return [cast(JsonValue, a.as_json()) for a in attachments or []]
         if node == TEMPLATE_DOCUMENTS:
             return list(documents)
         if node == TEMPLATE_HISTORY:
-            return cast(JsonValue, list(history))
+            return cast(JsonValue, normalize_history(history))
+        if node == TEMPLATE_MESSAGES:
+            current: HistoryMessage = {"role": "user", "content": prompt}
+            return cast(JsonValue, [*normalize_history(history), current])
         if node == TEMPLATE_TOOLS:
             return list(tools)
         return (
             node.replace(TEMPLATE_PROMPT, prompt)
             .replace(TEMPLATE_DOCUMENTS, "\n\n".join(documents))
             .replace(TEMPLATE_HISTORY, format_history(history))
+            .replace(TEMPLATE_MESSAGES, format_history([*history, {"role": "user", "content": prompt}]))
             .replace(TEMPLATE_TOOLS, json.dumps(tools, ensure_ascii=False))
         )
     if isinstance(node, list):
@@ -319,6 +371,16 @@ class HttpTarget:
     def accepts_attachments(self) -> bool:
         return bool(self.upload_field) or _contains_template(self.body, TEMPLATE_ATTACHMENTS)
 
+    @property
+    def accepts_history(self) -> bool:
+        return _contains_template(self.body, TEMPLATE_HISTORY) or _contains_template(
+            self.body, TEMPLATE_MESSAGES
+        )
+
+    @property
+    def observes_tools(self) -> bool:
+        return bool(self.tools_path)
+
     def _send(self, payload: JsonValue, attachments: list[Attachment]) -> httpx2.Response:
         if not self.upload_field:
             return self._client.post(self.url, json=payload, headers=self.headers)
@@ -344,7 +406,7 @@ class HttpTarget:
         history = history or []
         tools = tools or []
         attachments = attachments or []
-        if history and not _contains_template(self.body, TEMPLATE_HISTORY):
+        if history and not self.accepts_history:
             prompt = format_history(history) + "\n\n" + prompt
         payload = _fill(self.body, prompt, documents, history, tools, attachments)
         try:
@@ -360,12 +422,161 @@ class HttpTarget:
             raise TargetError(f"HTTP target failed: {exc}") from exc
 
 
+def _text_content(content: object) -> str:
+    """Text of a message ``content`` that is a string or a list of content parts / blocks."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            str(p.get("text", ""))
+            for p in content
+            if isinstance(p, Mapping) and p.get("type", "text") in ("text", "output_text")
+        ]
+        return "".join(parts)
+    return str(content)
+
+
+class ChatTarget(HttpTarget):
+    """An OpenAI- or Anthropic-compatible chat endpoint (``/v1/chat/completions``, ``/v1/messages``).
+
+    Use it when the app under test is reachable as a messages API: a model behind your system
+    prompt, an LLM gateway, or an agent framework served through an OpenAI-compatible endpoint.
+    Redgrade sends the forged conversation through the API's native fields: ``system`` turns,
+    assistant ``tool_calls``, ``tool`` results, the attack's tool catalog as ``tools``. It reads
+    the reply text and the tool calls the model requested (they are observed, not executed).
+
+    ``system_prompt`` is the app's own system prompt (put the real one here, and parts of it in
+    ``secrets``). Documents are inlined in the user message with ``documents_template``
+    (``{documents}`` and ``{prompt}`` placeholders). Chat targets have no file-upload surface.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        api: ChatApi = CHAT_API_OPENAI,
+        model: str | None = None,
+        system_prompt: str | None = None,
+        system_role: str = "system",
+        documents_template: str = DEFAULT_CHAT_DOCUMENTS_TEMPLATE,
+        extra_body: dict[str, JsonValue] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float = DEFAULT_HTTP_TIMEOUT,
+        client: httpx2.Client | None = None,
+    ) -> None:
+        if api not in (CHAT_API_OPENAI, CHAT_API_ANTHROPIC):
+            raise TargetError(f"unknown chat api {api!r} (use 'openai' or 'anthropic')")
+        headers = dict(headers or {})
+        if api == CHAT_API_ANTHROPIC and not any(k.lower() == "anthropic-version" for k in headers):
+            headers["anthropic-version"] = DEFAULT_ANTHROPIC_VERSION
+        super().__init__(url, body={}, headers=headers, timeout=timeout, client=client)
+        self.api = api
+        self.model = model
+        self.system_prompt = _expand_env(system_prompt) if system_prompt else None
+        self.system_role = system_role
+        self.documents_template = documents_template
+        self.extra_body = dict(extra_body or {})
+
+    @property
+    def accepts_attachments(self) -> bool:
+        return False
+
+    @property
+    def accepts_history(self) -> bool:
+        return True
+
+    @property
+    def observes_tools(self) -> bool:
+        return True
+
+    def _user_content(self, prompt: str, documents: list[str]) -> str:
+        if not documents:
+            return prompt
+        return self.documents_template.replace("{documents}", "\n\n".join(documents)).replace(
+            "{prompt}", prompt
+        )
+
+    def build_payload(
+        self,
+        prompt: str,
+        documents: list[str],
+        history: list[HistoryMessage] | None = None,
+        tools: list[JsonValue] | None = None,
+    ) -> dict[str, JsonValue]:
+        """The JSON body sent to the API (public so it can be inspected and tested)."""
+        user = self._user_content(prompt, documents)
+        payload: dict[str, JsonValue] = dict(self.extra_body)
+        if self.model:
+            payload["model"] = self.model
+        if self.api == CHAT_API_ANTHROPIC:
+            system, messages = anthropic_messages(history or [], user, system_prompt=self.system_prompt)
+            payload["messages"] = cast(JsonValue, messages)
+            if system:
+                payload["system"] = system
+            payload.setdefault("max_tokens", DEFAULT_ANTHROPIC_MAX_TOKENS)
+            if tools:
+                payload["tools"] = anthropic_tools(tools)
+        else:
+            payload["messages"] = cast(
+                JsonValue,
+                openai_messages(
+                    history or [], user, system_prompt=self.system_prompt, system_role=self.system_role
+                ),
+            )
+            if tools:
+                payload["tools"] = openai_tools(tools)
+        return payload
+
+    def _parse(self, data: object) -> TargetObservation:
+        if not isinstance(data, Mapping):
+            raise TargetError("chat response is not a JSON object")
+        if self.api == CHAT_API_ANTHROPIC:
+            blocks = data["content"]
+            if not isinstance(blocks, list):
+                raise TargetError("anthropic response 'content' is not a list")
+            calls = [
+                ToolCall(
+                    name=str(b["name"]),
+                    arguments=cast(dict[str, JsonValue], b.get("input") or {}),
+                    id=str(b.get("id", "")),
+                )
+                for b in blocks
+                if isinstance(b, Mapping) and b.get("type") == "tool_use"
+            ]
+            return TargetObservation(output=_text_content(blocks), tools_called=tuple(calls))
+        message = _dig(data, "choices.0.message")
+        if not isinstance(message, Mapping):
+            raise TargetError("openai response has no choices[0].message")
+        calls = parse_tool_calls(message.get("tool_calls"))
+        return TargetObservation(output=_text_content(message.get("content")), tools_called=tuple(calls))
+
+    def __call__(
+        self,
+        prompt: str,
+        documents: list[str],
+        history: list[HistoryMessage] | None = None,
+        tools: list[JsonValue] | None = None,
+        attachments: list[Attachment] | None = None,
+    ) -> TargetObservation:
+        if attachments:
+            raise TargetError("chat target has no attachments surface")
+        payload = self.build_payload(prompt, documents, history, tools)
+        try:
+            response = self._client.post(self.url, json=payload, headers=self.headers)
+            response.raise_for_status()
+            return self._parse(response.json())
+        except (httpx2.HTTPError, KeyError, IndexError, TypeError, ValueError, TargetError) as exc:
+            raise TargetError(f"chat target failed: {exc}") from exc
+
+
 class TargetFactory:
     """Build a callable target from a typed config block."""
 
     def build(self, config: TargetConfig | YamlMapping) -> Target:
-        if isinstance(config, (FunctionTargetConfig, HttpTargetConfig)):
-            parsed: FunctionTargetConfig | HttpTargetConfig = config
+        if isinstance(config, (FunctionTargetConfig, HttpTargetConfig, ChatTargetConfig)):
+            parsed: FunctionTargetConfig | HttpTargetConfig | ChatTargetConfig = config
         else:
             raw = dict(config)
             kind = raw.get("type", TARGET_TYPE_FUNCTION)
@@ -373,11 +584,25 @@ class TargetFactory:
                 parsed = FunctionTargetConfig.model_validate({**raw, "type": TARGET_TYPE_FUNCTION})
             elif kind == TARGET_TYPE_HTTP:
                 parsed = HttpTargetConfig.model_validate({**raw, "type": TARGET_TYPE_HTTP})
+            elif kind == TARGET_TYPE_CHAT:
+                parsed = ChatTargetConfig.model_validate({**raw, "type": TARGET_TYPE_CHAT})
             else:
-                raise TargetError(f"unknown target type {kind!r} (use 'function' or 'http')")
+                raise TargetError(f"unknown target type {kind!r} (use 'function', 'http' or 'chat')")
 
         if isinstance(parsed, FunctionTargetConfig):
             return function_target(parsed.path)
+        if isinstance(parsed, ChatTargetConfig):
+            return ChatTarget(
+                parsed.url,
+                api=parsed.api,
+                model=parsed.model,
+                system_prompt=parsed.system_prompt,
+                system_role=parsed.system_role,
+                documents_template=parsed.documents_template,
+                extra_body=parsed.extra_body,
+                headers=parsed.headers,
+                timeout=parsed.timeout,
+            )
         return HttpTarget(
             parsed.url,
             body=parsed.body,

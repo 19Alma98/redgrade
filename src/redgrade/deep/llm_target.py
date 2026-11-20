@@ -3,6 +3,7 @@ from typing import Any
 
 from redgrade.deep.client import LlmClient
 from redgrade.deep.errors import DeepError
+from redgrade.history import openai_history
 from redgrade.targets import TargetError
 from redgrade.types import HistoryMessage
 
@@ -29,11 +30,8 @@ class LlmTarget:
         history: list[HistoryMessage] | None = None,
     ) -> str:
         history = history or []
-        messages: list[dict[str, str]] = []
-        if self.system:
-            messages.append({"role": "system", "content": self.system})
-        for turn in history:
-            messages.append({"role": str(turn["role"]), "content": str(turn["content"])})
+        # Forged system / tool turns and assistant tool calls keep their native roles.
+        messages: list[dict[str, Any]] = list(openai_history(history, system_prompt=self.system))
         if documents:
             messages.append(
                 {

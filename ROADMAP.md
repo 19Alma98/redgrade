@@ -20,6 +20,10 @@ Applications (2026).
 | 0.2 | Task utility / over-refusal probes + `min_utility` gate | utility | shipped |
 | 0.2 | Deep-only `llm_judge` detector | LLM01 | shipped |
 | 0.5 | Real file attachments: PDF / DOCX / HTML / MD / CSV / JSON / PNG-metadata builders, hide techniques, multipart + base64 delivery | LLM01 | shipped (17 attacks) |
+| 0.5 | Conversation history injection: forged system / assistant / tool turns, tool trajectories, many-shot priming; `ChatTarget` (OpenAI / Anthropic messages APIs) and `{{messages}}` | LLM01, ASI01 | shipped (9 attacks) |
+| 0.5 | Out-of-band collector: attacker web server with per-trial fixtures (pages, JSON APIs, multi-hop chains), `{OOB_URL}`, `oob_callback` detector, inconclusive-when-not-fetched rule; demo browsing agents | LLM01, LLM02, ASI01 | shipped (6 attacks) |
+| 0.5 | Five-level ladder for every family (all built-in attacks leveled, L4 mutations beyond PI), contiguous "security level" in Markdown / JSON / HTML / SDK, `min_security_level` / `min_family_level` gates | all | shipped |
+| later | DNS / external collectors (interactsh-style) for agents that cannot reach the runner over HTTP | LLM02 | planned |
 | later | Visible-text images (OCR / vision injection), `.xlsx`, `.pptx`, EPUB, archives | LLM01 | planned |
 | later | More output handling: XSS payloads, SQL and shell injection through model output | LLM05 | planned |
 | later | Index / retrieval hooks for custom vector stores | LLM08 | planned |
@@ -35,7 +39,7 @@ Applications (2026).
 - [x] Deterministic L4 mutations on opted-in PI seeds (`mutations: [default]` or an explicit list)
 - [x] PI Maturity Score and highest resisted level in the report
 - [x] Adaptive / LLM-generated attack variants via `redgrade deep` (LiteLLM PAIR-lite)—not default CI
-- [ ] TAP / Crescendo-style multi-stage adaptivity beyond PAIR-lite
+- [x] TAP / Crescendo-style multi-stage adaptivity beyond PAIR-lite (`check_deep(strategies=["tap", "crescendo"])`)
 - [x] LLM-judge detector for verdicts a regex cannot give (deep-only; CI stays deterministic)
 - [x] Per-attack baseline compare: "new successes vs `main`" as a gate (`redgrade baseline update`, `policy.baseline`)
 - [x] HTML, SARIF and JUnit reports; report JSON `schema_version: 2`

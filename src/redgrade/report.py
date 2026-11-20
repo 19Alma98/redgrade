@@ -2,10 +2,12 @@
 
 import json
 from collections import defaultdict
+from typing import cast
 
 from redgrade.constants import (
     FAMILY_STATUS_AVAILABLE,
     FAMILY_TASK_UTILITY,
+    OOB_HIT_CALLBACK,
     PI_LEVEL_WEIGHTS,
     REPORT_SCHEMA_VERSION,
     REPORT_SNIPPET_CHARS,
@@ -15,10 +17,11 @@ from redgrade.constants import (
     SEVERITY_MEDIUM,
 )
 from redgrade.families import FAMILIES
+from redgrade.levels import LevelPosture, LevelScorer, level_label
 from redgrade.models import AttackResult, RunResult
 from redgrade.policy import Check, Policy, passed
 from redgrade.scoring import PiPosture, PiScorer
-from redgrade.types import AttackSummary, CheckDict, FamilyStat, PiPostureDict, ReportDict
+from redgrade.types import AttackSummary, CheckDict, FamilyStat, JsonValue, PiPostureDict, ReportDict
 from redgrade.utility import attack_results, utility_rate
 
 _SEVERITY_ORDER = {
@@ -88,6 +91,39 @@ class ReportBuilder:
             lines.append(f"| L{level} | {_pct(posture.asr_by_level.get(level))} |")
         return lines
 
+    def _level_posture(self, run: RunResult, policy: Policy | None) -> LevelPosture:
+        limits = policy.max_asr_by_level if policy is not None else None
+        return LevelScorer().score(run, max_asr_by_level=limits or None)
+
+    def _level_markdown(self, posture: LevelPosture) -> list[str]:
+        lines = [
+            "",
+            "## Security level",
+            "",
+            f"**{posture.verdict}**",
+            "",
+            "L1 basic, L2 structured (authority, persona, pretext), L3 indirect (documents, tools, "
+            "pages, history), L4 evasive (encodings, unicode, split), L5 compositional (multi-turn, "
+            "multi-hop). All attack families; a level holds only if every lower tested level holds.",
+            "",
+            "| level | attacks | ASR | status | got through |",
+            "|---|---|---|---|---|",
+        ]
+        for st in posture.levels:
+            status = "**broken**" if st.status == "broken" else st.status
+            got = ", ".join(st.broken_by) if st.broken_by else ""
+            lines.append(f"| {level_label(st.level)} | {st.attacks} | {_pct(st.asr)} | {status} | {got} |")
+        if posture.unleveled:
+            lines.append(f"\n{posture.unleveled} executed attack(s) have no level and are not on the ladder.")
+        if posture.families:
+            lines += ["", "| family | holds up to | broken at | not tested |", "|---|---|---|---|"]
+            for fam in posture.families:
+                holds = level_label(fam.resisted_up_to) if fam.resisted_up_to is not None else "none"
+                broken = level_label(fam.first_broken) if fam.first_broken is not None else ""
+                untested = ", ".join(f"L{lvl}" for lvl in fam.untested)
+                lines.append(f"| {fam.name} | {holds} | {broken} | {untested} |")
+        return lines
+
     def to_dict(self, run: RunResult, checks: list[Check], policy: Policy | None = None) -> ReportDict:
         check_rows: list[CheckDict] = [
             {"name": c.name, "value": c.value, "limit": c.limit, "passed": c.passed} for c in checks
@@ -119,6 +155,7 @@ class ReportBuilder:
             "families": self.family_stats(run),
             "attacks": attack_rows,
             "pi_posture": self._posture_dict(posture),
+            "security_level": cast(dict[str, JsonValue], self._level_posture(run, policy).to_dict()),
             "utility_overall": utility_rate(run),
         }
 
@@ -145,11 +182,15 @@ class ReportBuilder:
                 lines.append(f"| {c.name} | {_pct(c.value)} | >= {_pct(c.limit)} | {mark} |")
             elif c.name.startswith("baseline."):
                 lines.append(f"| {c.name} | {int(c.value)} | <= {int(c.limit)} | {mark} |")
+            elif c.name.startswith("level."):
+                got = f"L{int(c.value)}" if c.value else "none"
+                lines.append(f"| {c.name} | {got} | >= L{int(c.limit)} | {mark} |")
             elif c.name in ("pi.score", "pi.resisted_level") or c.name.startswith("score."):
                 lines.append(f"| {c.name} | {c.value} | >= {c.limit} | {mark} |")
             else:
                 lines.append(f"| {c.name} | {_pct(c.value)} | <= {_pct(c.limit)} | {mark} |")
 
+        lines += self._level_markdown(self._level_posture(run, policy))
         posture = self._score_posture(run, policy)
         lines += self._pi_posture_markdown(posture)
 
@@ -184,6 +225,9 @@ class ReportBuilder:
                 )
                 first = next(t for t in r.valid_trials if t.succeeded)
                 lines.append(f"  - output: `{_snippet(first.output)}`")
+                # Out-of-band evidence: method and path only (the query/body may carry secrets).
+                callbacks = [h for h in first.oob_hits if h.kind == OOB_HIT_CALLBACK]
+                lines += [f"  - callback received: `{h.method} {h.path}`" for h in callbacks[:3]]
 
         if run.skipped:
             lines += ["", "## Skipped (not tested)", ""]

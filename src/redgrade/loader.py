@@ -13,7 +13,9 @@ from redgrade.constants import (
     DELIVERY_DOCUMENT,
     DETECT_ON_ANY,
     DETECT_ON_LAST,
+    DETECTOR_OOB_CALLBACK,
     SEVERITIES,
+    TEMPLATE_OOB_URL,
 )
 from redgrade.detectors import DETECTORS
 from redgrade.families import FAMILY_BY_ID
@@ -69,6 +71,50 @@ class PackLoader:
         if not isinstance(tools, list):
             raise PackError(f"{origin}: {attack_id}: tools must be a list")
         return tuple(tools)
+
+    def _parse_history(self, raw: dict[str, object], origin: str, attack_id: str) -> dict[str, object]:
+        """``history`` (forged conversation) and ``requires_history`` (default: true when set)."""
+        items = raw.get("history")
+        if items is None:
+            if raw.get("requires_history"):
+                raise PackError(f"{origin}: {attack_id}: requires_history needs a history list")
+            return {}
+        if not isinstance(items, list) or not items:
+            raise PackError(f"{origin}: {attack_id}: history must be a non-empty list")
+        turns: list[object] = []
+        for i, item in enumerate(items):
+            if not isinstance(item, dict) or "role" not in item:
+                raise PackError(f"{origin}: {attack_id}: history item {i} must be a mapping with a role")
+            turns.append(item)
+        return {"history": turns, "requires_history": bool(raw.get("requires_history", True))}
+
+    def _parse_oob(self, raw: dict[str, object], origin: str, attack_id: str) -> dict[str, object]:
+        """``fixtures`` plus ``requires_oob`` / ``requires_fetch``, inferred when not set.
+
+        An attack needs the out-of-band collector when it serves fixtures, mentions ``{OOB_URL}``
+        anywhere, or uses the ``oob_callback`` detector. It needs a fetch when it has fixtures.
+        """
+        items = raw.get("fixtures")
+        if items is not None and (not isinstance(items, list) or not items):
+            raise PackError(f"{origin}: {attack_id}: fixtures must be a non-empty list")
+        fixtures: list[object] = []
+        for i, item in enumerate(items or []):
+            if not isinstance(item, dict) or "path" not in item or "body" not in item:
+                raise PackError(f"{origin}: {attack_id}: fixture {i} needs path and body")
+            fixtures.append(item)
+        uses_url = TEMPLATE_OOB_URL in yaml.safe_dump(raw, allow_unicode=True, width=10**9)
+        needs_oob = bool(fixtures) or uses_url or raw.get("detector") == DETECTOR_OOB_CALLBACK
+        out: dict[str, object] = {
+            "requires_oob": bool(raw.get("requires_oob", needs_oob)),
+            "requires_fetch": bool(raw.get("requires_fetch", bool(fixtures))),
+        }
+        if fixtures:
+            out["fixtures"] = fixtures
+        if out["requires_fetch"] and not fixtures:
+            raise PackError(f"{origin}: {attack_id}: requires_fetch needs fixtures")
+        if (fixtures or uses_url) and not out["requires_oob"]:
+            raise PackError(f"{origin}: {attack_id}: fixtures / {TEMPLATE_OOB_URL} need requires_oob")
+        return out
 
     def _finalize(self, attacks: list[Attack]) -> list[Attack]:
         try:
@@ -150,6 +196,8 @@ class PackLoader:
                             "requires_tools": bool(raw.get("requires_tools", False)),
                             "tools": self._parse_tools(raw, origin, str(raw.get("id", "?"))),
                             "description": str(raw.get("description", "")),
+                            **self._parse_history(raw, origin, str(raw.get("id", "?"))),
+                            **self._parse_oob(raw, origin, str(raw.get("id", "?"))),
                             **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
                     )
@@ -183,6 +231,8 @@ class PackLoader:
                             "requires_tools": bool(raw.get("requires_tools", False)),
                             "tools": self._parse_tools(raw, origin, str(raw.get("id", "?"))),
                             "description": str(raw.get("description", "")),
+                            **self._parse_history(raw, origin, str(raw.get("id", "?"))),
+                            **self._parse_oob(raw, origin, str(raw.get("id", "?"))),
                             **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
                     )

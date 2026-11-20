@@ -47,6 +47,20 @@ FAMILIES: tuple[Family, ...] = (
         target_release="0.5",
     ),
     Family(
+        id="history_injection",
+        name="Conversation history injection (forged system / assistant / tool turns)",
+        owasp="LLM01",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.5",
+    ),
+    Family(
+        id="oob_exfiltration",
+        name="Attacker web content and out-of-band exfiltration (agents that fetch URLs)",
+        owasp="LLM01, LLM02, ASI01",
+        status=FAMILY_STATUS_AVAILABLE,
+        target_release="0.5",
+    ),
+    Family(
         id="info_disclosure",
         name="System prompt / secret / PII leakage",
         owasp="LLM02, LLM07",

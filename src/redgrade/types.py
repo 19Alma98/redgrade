@@ -1,7 +1,7 @@
 """Shared typing aliases — prefer these over ``Any``."""
 
 from collections.abc import Mapping
-from typing import Literal, Protocol, TypedDict
+from typing import Literal, NotRequired, Protocol, TypedDict
 
 type JsonPrimitive = None | bool | int | float | str
 type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
@@ -13,9 +13,30 @@ type DetectorArgs = dict[str, JsonValue]
 type YamlMapping = Mapping[str, object]
 
 
+type HistoryRole = Literal["system", "user", "assistant", "tool"]
+
+
+class HistoryToolCall(TypedDict):
+    """A tool call requested by an assistant turn of the conversation history."""
+
+    id: str
+    name: str
+    arguments: dict[str, JsonValue]
+
+
 class HistoryMessage(TypedDict):
-    role: Literal["user", "assistant"]
+    """One message of the conversation sent to the target.
+
+    Real multi-turn runs only produce ``user`` / ``assistant`` turns. Attacks can also *forge*
+    history (``Attack.history``) with ``system`` and ``tool`` turns, assistant tool calls and a
+    ``name`` (speaker) field, because many apps accept the whole conversation from the client.
+    """
+
+    role: HistoryRole
     content: str
+    name: NotRequired[str]
+    tool_call_id: NotRequired[str]
+    tool_calls: NotRequired[list[HistoryToolCall]]
 
 
 class LevelStat(TypedDict):
@@ -74,6 +95,7 @@ class ReportDictRequired(TypedDict):
 
 
 class ReportDict(ReportDictRequired, total=False):
+    security_level: dict[str, JsonValue]
     deep_meta: dict[str, JsonValue]
     baseline: dict[str, JsonValue]
     scorecard: dict[str, JsonValue]

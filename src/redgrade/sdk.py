@@ -1,7 +1,8 @@
 """Public SDK: attack an HTTP app endpoint and return an AttackReport."""
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -16,10 +17,17 @@ from redgrade.baseline import (
     baseline_markdown,
     compare,
 )
-from redgrade.constants import DEFAULT_CHECK_PIPELINES, PIPELINE_CI_ATTACHMENTS, PIPELINE_CI_UTILITY
+from redgrade.constants import (
+    DEFAULT_CHECK_PIPELINES,
+    PIPELINE_CI_ATTACHMENTS,
+    PIPELINE_CI_OOB,
+    PIPELINE_CI_UTILITY,
+)
 from redgrade.deep.meta import DeepMeta
+from redgrade.levels import LevelPosture, LevelScorer
 from redgrade.loader import load_attacks
 from redgrade.models import AttackResult, RunResult
+from redgrade.oob import OobServer
 from redgrade.pipelines import families_for_pipelines, resolve_pipelines
 from redgrade.policy import Check, Policy, evaluate_policy, passed
 from redgrade.report import to_dict, to_markdown
@@ -44,6 +52,8 @@ class AttackReport(BaseModel):
     policy: Policy
     pi_score: int | None = None
     highest_resisted_level: int | None = None
+    security_level: int | None = None  # holds every tested level up to this one (all families)
+    first_broken_level: int | None = None
     asr_overall: float | None = None
     utility_overall: float | None = None
     deep_meta: DeepMeta | None = None
@@ -57,6 +67,10 @@ class AttackReport(BaseModel):
         """Per-family and overall score with 95% ranges and a letter grade."""
         return build_scorecard(self.run)
 
+    def levels(self) -> LevelPosture:
+        """The level ladder: per-level ASR, how far the app holds, per-family ladders."""
+        return LevelScorer().score(self.run, max_asr_by_level=self.policy.max_asr_by_level or None)
+
     def summary(self) -> str:
         lines = [
             f"Redgrade: {'PASSED' if self.passed else 'FAILED'}",
@@ -64,6 +78,7 @@ class AttackReport(BaseModel):
         ]
         if self.utility_overall is not None:
             lines.append(f"Utility: {self.utility_overall * 100:.0f}%")
+        lines.append(f"Security level: {self.levels().verdict}")
         if self.pi_score is not None:
             lines.append(f"PI Maturity Score: {self.pi_score}/100")
         if self.security_score is not None:
@@ -143,6 +158,7 @@ class AttackReport(BaseModel):
             version=__version__,
             comparison=self.baseline,
             include_output=include_output,
+            max_asr_by_level=self.policy.max_asr_by_level or None,
         )
 
     def to_baseline(self) -> Baseline:
@@ -197,6 +213,7 @@ def _build_report(
     deep_meta: DeepMeta | None = None,
 ) -> AttackReport:
     posture = PiScorer().score(run, max_asr_by_level=policy.max_asr_by_level or None)
+    ladder = LevelScorer().score(run, max_asr_by_level=policy.max_asr_by_level or None)
     card = build_scorecard(run)
     return AttackReport(
         passed=passed(checks),
@@ -205,12 +222,31 @@ def _build_report(
         policy=policy,
         pi_score=posture.score,
         highest_resisted_level=posture.highest_resisted_level,
+        security_level=ladder.resisted_up_to,
+        first_broken_level=ladder.first_broken,
         grade=card.grade,
         security_score=card.score,
         asr_overall=_overall_asr(run),
         utility_overall=utility_rate(run),
         deep_meta=deep_meta,
     )
+
+
+@contextmanager
+def oob_collector(oob: OobServer | bool | None) -> Iterator[OobServer | None]:
+    """Resolve the SDK ``oob`` argument: ``True`` starts (and stops) a local collector, a stopped
+    ``OobServer`` is started for the run and stopped after, a running one is used as is."""
+    if not oob:
+        yield None
+        return
+    server = OobServer() if oob is True else oob
+    if not isinstance(server, OobServer):
+        raise AttackError("oob must be True, False/None or an OobServer")
+    if server.running:
+        yield server
+        return
+    with server:
+        yield server
 
 
 def run_pipeline(
@@ -222,11 +258,13 @@ def run_pipeline(
     run_config: RunConfig | None = None,
     on_result: Callable[[AttackResult], None] | None = None,
     baseline: Baseline | str | Path | None = None,
+    oob: OobServer | bool | None = None,
 ) -> AttackReport:
     """Shared runner for SDK and CLI. Accepts any Target (including function wrappers).
 
     ``baseline`` (a ``Baseline`` or a path) enables the per-attack regression gate; without it,
-    ``policy.baseline.path`` is used when the policy configures one.
+    ``policy.baseline.path`` is used when the policy configures one. ``oob`` enables the
+    out-of-band collector (see ``redgrade.oob``) for attacks that need it.
     """
     policy = policy or Policy()
     if baseline is not None and policy.baseline is None:
@@ -246,7 +284,8 @@ def run_pipeline(
     attacks = load_attacks(extra_packs=packs, families=families)
     if not attacks:
         raise AttackError("no attacks selected")
-    run = run_attacks(attacks, target, run_config, on_result=on_result)
+    with oob_collector(oob) as server:
+        run = run_attacks(attacks, target, run_config, on_result=on_result, oob=server)
     comparison = compare(run, loaded, policy.baseline) if loaded and policy.baseline else None
     checks = evaluate_policy(run, policy, comparison)
     report = _build_report(run, checks, policy)
@@ -265,11 +304,13 @@ def attack(
     allowed_hosts: list[str] | None = None,
     max_output_chars: int | None = None,
     baseline: Baseline | str | Path | None = None,
+    oob: OobServer | bool | None = None,
 ) -> AttackReport:
     """Run attacks against an HTTP app endpoint and return an ``AttackReport``.
 
     ``packs`` is additive: built-in attack packs are always loaded, and any paths
     in ``packs`` are merged in (same as the CLI ``--pack`` / config ``extra_packs``).
+    ``oob=True`` (or an ``OobServer``) runs the out-of-band collector for agents that fetch URLs.
     """
     if not isinstance(target, HttpTarget):
         raise AttackError("attack() requires an HttpTarget (HTTP endpoint of the app under test)")
@@ -294,6 +335,7 @@ def attack(
         packs=packs,
         run_config=run_config,
         baseline=baseline,
+        oob=oob,
     )
 
 
@@ -310,18 +352,24 @@ def check(
     allowed_hosts: list[str] | None = None,
     max_output_chars: int | None = None,
     baseline: Baseline | str | Path | None = None,
+    oob: OobServer | bool | None = None,
 ) -> AttackReport:
     """Run CI pipeline checks against an HTTP app endpoint.
 
     When ``pipelines`` is omitted and the target can receive files (``upload_field`` or an
-    ``{{attachments}}`` body template), ``ci.attachments`` runs as well.
+    ``{{attachments}}`` body template), ``ci.attachments`` runs as well; with ``oob`` (``True`` or
+    an ``OobServer``), ``ci.oob`` runs the attacker-web / out-of-band exfiltration attacks.
     """
     if not isinstance(target, HttpTarget):
         raise AttackError("check() requires an HttpTarget (HTTP endpoint of the app under test)")
 
-    if pipelines is None and target.accepts_attachments:
-        # The app has an upload surface: attack it through files too (opt-out via ``disable``).
-        pipelines = [*DEFAULT_CHECK_PIPELINES, PIPELINE_CI_ATTACHMENTS]
+    if pipelines is None:
+        # Default pipelines plus the surfaces the target has (opt-out via ``disable``).
+        pipelines = list(DEFAULT_CHECK_PIPELINES)
+        if target.accepts_attachments:
+            pipelines.append(PIPELINE_CI_ATTACHMENTS)
+        if oob:
+            pipelines.append(PIPELINE_CI_OOB)
     specs = resolve_pipelines(pipelines, disable)
     ci_specs = [s for s in specs if not s.lab]
     if not ci_specs:
@@ -353,6 +401,7 @@ def check(
         packs=extra_packs,
         run_config=run_config,
         baseline=baseline,
+        oob=oob,
     )
     return report.model_copy(
         update={"mode": "ci", "pipelines_run": [s.id for s in ci_specs]},

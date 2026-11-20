@@ -202,6 +202,13 @@ def test_unknown_detector():
 # --- packs ----------------------------------------------------------------------------------
 
 
+def test_every_builtin_attack_has_a_level():
+    attacks = load_attacks(include_opt_in=True)
+    missing = [a.id for a in attacks if a.level is None and a.family != "task_utility"]
+    assert missing == [], f"unleveled built-in attacks: {missing}"
+    assert all(a.level is None for a in attacks if a.family == "task_utility")
+
+
 def test_builtin_pi_attacks_have_levels():
     attacks = load_builtin_attacks()
     pi = [a for a in attacks if a.family in ("prompt_injection_direct", "prompt_injection_indirect")]
@@ -217,8 +224,8 @@ def test_builtin_pi_attacks_have_levels():
     mt_by_id = {a.id: a for a in mt if "~" not in a.id}
     for seed in ("MT-001", "MT-003", "MT-004", "MT-005", "MT-006", "MT-007", "MT-008", "MT-009", "MT-010"):
         assert mt_by_id[seed].level is not None, seed
-    assert mt_by_id["MT-002"].level is None
-    assert mt_by_id["MT-011"].level is None
+    # secret-leak multi-turn attacks are leveled (L5) but stay out of the PI score
+    assert mt_by_id["MT-002"].level == 5 and mt_by_id["MT-002"].requires_secrets
     for a in mt:
         if "~" in a.id:
             assert a.level == 4, a.id
