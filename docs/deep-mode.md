@@ -93,6 +93,13 @@ redgrade import-dataset harmful_behaviors.csv --preset advbench --limit 50 -o ad
 Write the pack once, review it, commit it, and add it with `--pack` / `packs:`. Pass your own
 `chat=` callable to use any provider from the SDK.
 
+## Judge verdicts in CI: `distill`
+
+`llm_judge` attacks are skipped by static runs. `redgrade distill pack.yaml -c redgrade.yaml
+--judge-model ...` runs them against your target, has the judge label the outputs and freezes a
+`rubric` (regexes) only when it agrees with the judge, so CI can replay them deterministically.
+See [ci-verdicts.md](ci-verdicts.md).
+
 ## LiteLLM model strings
 
 Redgrade passes `attacker.model` and optional `target.model` straight to LiteLLM. Examples:

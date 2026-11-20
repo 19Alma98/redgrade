@@ -1,4 +1,5 @@
-"""Command line: ``redgrade init | list | run | check | baseline | export-dataset | deep``.
+"""Command line: ``redgrade init | list | run | check | baseline | compare | compliance | deep |
+generate | translate | distill | import-dataset | export-dataset``.
 
 Exit codes: 0 gate passed, 1 gate failed, 2 usage or configuration error.
 """
