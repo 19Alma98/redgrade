@@ -1,7 +1,8 @@
-"""Command line: ``redgrade init | list | run | check | baseline | compare | compliance | deep |
-generate | translate | distill | import-dataset | export-dataset``.
+"""Command line: ``redgrade scan`` attacks your agent before release; ``redgrade check`` (alias
+``run``) replays the deterministic gate in CI. Also: ``init | list | baseline | compare |
+compliance | generate | translate | distill | deep | import-dataset | export-dataset``.
 
-Exit codes: 0 gate passed, 1 gate failed, 2 usage or configuration error.
+Exit codes: 0 ready / gate passed, 1 not ready / gate failed, 2 usage or configuration error.
 """
 
 import argparse
@@ -191,6 +192,63 @@ def _cmd_baseline_update(args: argparse.Namespace) -> int:
     report.to_baseline().save(out)
     print(f"wrote baseline for {len(report.run.executed)} attacks to {out}", file=sys.stderr)
     return 0
+
+
+def _cmd_scan(args: argparse.Namespace) -> int:
+    from redgrade.scan import run_scan
+
+    config = load_config(args.config)
+    sc = config.scan
+    if args.trials:
+        config.run.trials = args.trials
+    purpose = sc.purpose
+    if args.purpose_file:
+        purpose = Path(args.purpose_file).read_text(encoding="utf-8")
+    elif args.purpose:
+        purpose = args.purpose
+    required = args.required_level or sc.required_level
+    adaptive = sc.adaptive and not args.no_adaptive
+    try:
+        judge = prepare_extensions(config)
+        target = build_target(config.target)
+        with _collector(config) as oob:
+            report = run_scan(
+                target,
+                purpose=purpose,
+                required_level=required,
+                adaptive=adaptive,
+                attacker_model=args.attacker_model or sc.attacker.model,
+                attacker_api_base=args.attacker_api_base or sc.attacker.api_base,
+                strategies=args.strategy or sc.strategies or None,
+                max_rounds=args.max_rounds or sc.max_rounds,
+                adaptive_seeds=sc.adaptive_seeds,
+                goals=sc.goals or None,
+                generate_count=sc.generate_count,
+                families=args.family or config.families or None,
+                include_opt_in=sc.include_opt_in,
+                packs=config.packs or None,
+                run_config=config.run,
+                oob=oob,
+                judge=judge,
+                on_result=_progress,
+                on_phase=lambda msg: print(f"scan: {msg}", file=sys.stderr),
+            )
+    except (AttackError, PluginError, JudgeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(report.to_markdown(include_output=not args.no_output))
+    print("\n" + report.readiness().verdict, file=sys.stderr)
+    if args.report:
+        Path(args.report).write_text(report.to_markdown(include_output=not args.no_output), encoding="utf-8")
+    if args.json:
+        Path(args.json).write_text(report.to_json(), encoding="utf-8")
+    if args.html:
+        Path(args.html).write_text(report.to_html(include_output=not args.no_output), encoding="utf-8")
+    if args.export_wins:
+        n = report.export_winning_seeds(args.export_wins)
+        print(f"wrote {n} adaptive win(s) to {args.export_wins}: add it to `packs:` for CI", file=sys.stderr)
+    return 0 if report.passed else 1
 
 
 def _cmd_deep(args: argparse.Namespace) -> int:
@@ -513,7 +571,39 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--plugin", action="append", help="plugin module that registers detectors")
     p.set_defaults(func=_cmd_list)
 
-    p = sub.add_parser("run", help="attack the target and apply the gate")
+    p = sub.add_parser(
+        "scan",
+        help="attack the agent before release: findings, fixes and a release verdict",
+        description=(
+            "Attack the agent's chat API with every built-in attack, attacks generated for its "
+            "purpose and adaptive attackers (an attacker LLM via LiteLLM). Exit 0 when the agent "
+            "holds the required level, 1 when it does not. Settings: `scan:` in redgrade.yaml."
+        ),
+    )
+    p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH)
+    g = p.add_mutually_exclusive_group()
+    g.add_argument(
+        "--purpose", help="what the agent does, for whom, with which tools (overrides scan.purpose)"
+    )
+    g.add_argument("--purpose-file", help="read the purpose from a file")
+    p.add_argument("--required-level", type=int, choices=[1, 2, 3, 4, 5], help="level the agent must hold")
+    p.add_argument("--attacker-model", help="LiteLLM model string (overrides scan.attacker.model)")
+    p.add_argument("--attacker-api-base", help="attacker API base URL")
+    p.add_argument("--no-adaptive", action="store_true", help="skip the adaptive attackers (no attacker LLM)")
+    p.add_argument(
+        "--strategy", action="append", choices=DEEP_STRATEGIES, help="adaptive strategy (repeatable)"
+    )
+    p.add_argument("--max-rounds", type=int, help="attacker rounds per seed")
+    p.add_argument("--family", action="append", help="only this family (repeatable)")
+    p.add_argument("--trials", type=int, help="override run.trials")
+    p.add_argument("--report", help="write the Markdown report to this file")
+    p.add_argument("--json", help="write the JSON report (findings, readiness) to this file")
+    p.add_argument("--html", help="write a self-contained HTML report")
+    p.add_argument("--export-wins", metavar="PATH", help="write the adaptive wins as a pack for CI")
+    p.add_argument("--no-output", action="store_true", help="leave the agent's output out of the reports")
+    p.set_defaults(func=_cmd_scan)
+
+    p = sub.add_parser("run", help="CI: replay the deterministic attacks and apply the gate")
     p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH)
     p.add_argument("--family", action="append", help="only this family (repeatable)")
     p.add_argument("--trials", type=int, help="override run.trials")
@@ -564,7 +654,7 @@ def build_parser() -> argparse.ArgumentParser:
     bp.add_argument("--out", help=f"baseline file (default: policy.baseline.path or {DEFAULT_BASELINE_PATH})")
     bp.set_defaults(func=_cmd_baseline_update)
 
-    p = sub.add_parser("deep", help="adaptive deep attack against the target")
+    p = sub.add_parser("deep", help="advanced: adaptive attackers only, from a deep config (scan runs them)")
     p.add_argument("--config", "-c", required=True, help="deep config YAML")
     p.add_argument("--attacker-model", help="override attacker.model")
     p.add_argument("--max-rounds", type=int, help="override max_rounds")

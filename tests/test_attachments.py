@@ -368,7 +368,7 @@ def test_deep_client_explains_missing_litellm(monkeypatch):
     from redgrade.deep.errors import DeepError
 
     monkeypatch.setitem(sys.modules, "litellm", None)  # makes `import litellm` raise ImportError
-    with pytest.raises(DeepError, match=r"redgrade\[deep\]"):
+    with pytest.raises(DeepError, match="LiteLLM, a redgrade dependency"):
         LlmClient(model="x")
 
 

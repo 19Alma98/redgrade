@@ -3,10 +3,11 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from redgrade.classifiers import ClassifierConfig
 from redgrade.constants import (
+    DEEP_STRATEGIES,
     DEFAULT_CONCURRENCY,
     DEFAULT_CONFIG_PATH,
     DEFAULT_CRITICAL_ASR_LIMIT,
@@ -43,7 +44,7 @@ def _as_int(value: object, default: int) -> int:
 class JudgeConfig(BaseModel):
     """``judge:`` in ``redgrade.yaml``: score ``llm_judge`` attacks in a static run (opt-in).
 
-    ``model`` / ``api_base`` use LiteLLM (``pip install 'redgrade[deep]'``); ``path`` points to
+    ``model`` / ``api_base`` use LiteLLM (any provider it supports); ``path`` points to
     your own chat callable (``module:function``, ``messages -> str``). ``cache`` stores verdicts
     by output hash (commit it for reproducible, cheap re-runs).
     """
@@ -56,6 +57,44 @@ class JudgeConfig(BaseModel):
     cache: str | None = None
 
 
+class AttackerConfig(BaseModel):
+    """The attacker LLM of a scan: any LiteLLM model string (``openai/gpt-4o``,
+    ``anthropic/...``, ``ollama_chat/llama3.1``...)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = None
+    api_base: str | None = None
+
+
+class ScanConfig(BaseModel):
+    """``scan:`` in ``redgrade.yaml``: how ``redgrade scan`` attacks the agent before release.
+
+    ``policy:`` is the CI gate; a scan is judged by ``required_level`` (see ``redgrade.findings``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    purpose: str | None = None
+    required_level: int = Field(default=3, ge=1, le=5)
+    adaptive: bool = True
+    attacker: AttackerConfig = Field(default_factory=AttackerConfig)
+    strategies: list[str] = Field(default_factory=list)
+    max_rounds: int = Field(default=5, ge=1)
+    adaptive_seeds: int = Field(default=8, ge=0)
+    generate_count: int = Field(default=3, ge=1)
+    goals: list[str] = Field(default_factory=list)
+    include_opt_in: bool = False
+
+    @field_validator("strategies")
+    @classmethod
+    def _known_strategies(cls, value: list[str]) -> list[str]:
+        unknown = [s for s in value if s not in DEEP_STRATEGIES]
+        if unknown:
+            raise ValueError(f"unknown scan strategy {unknown[0]!r} (known: {', '.join(DEEP_STRATEGIES)})")
+        return value
+
+
 class Config(BaseModel):
     target: TargetConfig
     run: RunConfig
@@ -66,6 +105,7 @@ class Config(BaseModel):
     plugins: list[str] = Field(default_factory=list)
     classifiers: dict[str, ClassifierConfig] = Field(default_factory=dict)
     judge: JudgeConfig | None = None
+    scan: ScanConfig = Field(default_factory=ScanConfig)
 
 
 EXAMPLE = f"""\
@@ -84,10 +124,17 @@ run:
   concurrency: {DEFAULT_CONCURRENCY}
 secrets:
   - "a distinctive phrase from your system prompt"
+
+# `redgrade scan`: attack the agent before release (built-in + generated + adaptive attacks).
+scan:
+  purpose: "support assistant for an online shop; tools: order_status, refund"
+  required_level: 3                      # the agent must hold L1-L3 to be released
+  attacker: {{ model: ollama_chat/llama3.1 }}   # any LiteLLM model; a stronger attacker finds more
 allowed_hosts: []
 limits:
   max_output_chars: {DEFAULT_MAX_OUTPUT_CHARS}
 
+# `redgrade check` (CI): the deterministic gate replayed on every pull request.
 policy:
   max_asr: {DEFAULT_MAX_ASR}
   max_asr_by_severity: {{ {SEVERITY_CRITICAL}: {DEFAULT_CRITICAL_ASR_LIMIT} }}
@@ -200,6 +247,9 @@ class ConfigLoader:
         classifiers_raw = raw.get("classifiers") or {}
         if not isinstance(classifiers_raw, dict):
             raise ValueError("'classifiers' must be a mapping of name -> {hf_model | path}")
+        scan_raw = raw.get("scan")
+        if scan_raw is not None and not isinstance(scan_raw, dict):
+            raise ValueError("'scan' must be a mapping")
         judge_raw = raw.get("judge")
         if judge_raw is not None and not isinstance(judge_raw, dict):
             raise ValueError("'judge' must be a mapping")
@@ -215,6 +265,7 @@ class ConfigLoader:
             packs=[str(p) for p in packs_raw],
             families=[str(f) for f in families_raw],
             oob=oob if oob is not None and oob.enabled else None,
+            scan=ScanConfig.model_validate(scan_raw) if scan_raw is not None else ScanConfig(),
         )
 
 

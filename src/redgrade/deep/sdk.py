@@ -48,17 +48,22 @@ def _build_goal_specs(
     seed_attack_ids: list[str] | None,
     packs: list[str] | None,
     detector: str,
+    seed_attacks: list[Attack] | None = None,
 ) -> list[GoalSpec]:
     specs: list[GoalSpec] = []
     for i, text in enumerate(goals or [], start=1):
         specs.append(GoalSpec(id=f"DEEP-{i}", text=text, detector=detector))
 
+    seeds: list[Attack] = list(seed_attacks or [])
     if seed_attack_ids:
         by_id = {a.id: a for a in load_attacks(extra_packs=packs)}
         for sid in seed_attack_ids:
             attack = by_id.get(sid)
             if attack is None:
                 raise DeepError(f"unknown seed attack id: {sid!r}")
+            seeds.append(attack)
+    if seeds:
+        for attack in seeds:
             if attack.turns:
                 raise DeepError("multi-turn seeds not supported in M1")
             specs.append(
@@ -110,8 +115,11 @@ def deep_attack(
     judge_model: str | None = None,
     judge_api_base: str | None = None,
     judge_chat: Callable[[list[dict[str, str]]], str] | None = None,
+    seed_attacks: list[Attack] | None = None,
 ) -> AttackReport:
-    if not (goals or seed_attack_ids):
+    """Adaptive attackers against ``target``. ``seed_attacks`` (already loaded ``Attack`` objects,
+    e.g. generated ones) are used as seeds alongside ``seed_attack_ids``."""
+    if not (goals or seed_attack_ids or seed_attacks):
         raise DeepError("deep_attack requires at least one goal or seed_attack_id")
 
     policy = policy or Policy()
@@ -120,6 +128,7 @@ def deep_attack(
         seed_attack_ids=seed_attack_ids,
         packs=packs,
         detector=detector,
+        seed_attacks=seed_attacks,
     )
     chat_fn = attacker_chat
     if chat_fn is None:

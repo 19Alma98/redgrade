@@ -1,5 +1,9 @@
 # Roadmap
 
+Redgrade is an SDK to attack an AI agent **before release**: `scan()` finds the vulnerabilities
+and gives a release verdict; `check()` replays the deterministic subset in CI so they do not come
+back. The scan is the core; CI is the guard.
+
 Redgrade covers attacks that arrive from **outside** the app: user messages, documents, web
 pages, tool outputs. Threats from the inside (training-data poisoning, model theft, supply-chain
 scanning of dependencies) are out of scope; dedicated tools exist for those.
@@ -39,6 +43,17 @@ Applications (2026).
 | 0.4 | Jailbreak and harmful content (opt-in family; policy-bypass proxies) | LLM01 | shipped (7 attacks) |
 | 0.4 | Business integrity / policy abuse (opt-in + Acme example pack) | ASI / brand | shipped (5 + example) |
 
+## Scan (development) first
+
+- [x] `scan()` / `redgrade scan`: built-in + purpose-generated + adaptive attacks in one call
+- [x] Findings with surface, source, reproduction (input, canary, output) and a suggested fix per family
+- [x] Release verdict (`report.readiness(required_level)`): contiguous ladder, critical findings block, untested levels never count
+- [x] LiteLLM is a core dependency (lazy import: `check` never loads it); `scan:` block in `redgrade.yaml`
+- [ ] `replay`: re-run only the findings of a previous scan (static and adaptive) to confirm a fix
+- [ ] `promote`: move confirmed findings into the CI regression pack in one step
+- [ ] Stronger default attacker and a warning in the report when the attacker is too weak (or refuses)
+- [ ] Remediation per technique (not only per family), with links to the relevant OWASP guidance
+
 ## Cross-cutting
 
 - [x] Deterministic L4 mutations on opted-in PI seeds (`mutations: [default]` or an explicit list)
@@ -68,7 +83,7 @@ Applications (2026).
 - [ ] Verify the OpenGrade adapter end to end against a running OpenGrade server
 - [ ] Vulnerable reference apps for each family (the demo app is a simulation, not a real model)
 
-- [x] `litellm` moved to the optional `redgrade[deep]` extra; one version source (`__init__.py`)
+- [x] One version source (`__init__.py`); `litellm` is a core dependency again since `scan()` became the main entry point (the `deep` extra is kept, empty)
 
 ## Non-goals
 

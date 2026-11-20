@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "redgrade"
 dynamic = ["version"]
-description = "Red-team your LLM app in CI: attack it, measure the attack success rate, fail the pull request on regressions."
+description = "Attack your AI agent before you release it: built-in, generated and adaptive attacks through its chat API, findings with fixes, a release verdict, and a deterministic gate for CI."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
 authors = [{ name = "Alessandro Magliola" }]
-keywords = ["llm", "security", "red-teaming", "prompt-injection", "owasp", "mcp", "ci"]
+keywords = ["llm", "security", "red-teaming", "prompt-injection", "owasp", "mcp", "agents", "ci"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -22,12 +22,14 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2",
     "httpx2",
+    # The attacker and judge LLMs of `scan` (any provider). Imported lazily: `check` in CI never loads it.
+    "litellm>=1.109.1",
 ]
 
 [project.optional-dependencies]
 opengrade = ["opengrade-ai>=0.1"]
-# Lab-only: adaptive attacker / LLM judge (`redgrade deep`, `check_deep`). CI does not need it.
-deep = ["litellm>=1.109.1"]
+# Kept so `pip install 'redgrade[deep]'` keeps working: LiteLLM is now a core dependency.
+deep = []
 
 [project.scripts]
 redgrade = "redgrade.cli:main"
