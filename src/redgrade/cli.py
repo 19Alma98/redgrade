@@ -6,16 +6,18 @@ Exit codes: 0 gate passed, 1 gate failed, 2 usage or configuration error.
 import argparse
 import json
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from redgrade import __version__
 from redgrade.baseline import DEFAULT_BASELINE_PATH, BaselineError
-from redgrade.config import EXAMPLE, ConfigError, load_config
+from redgrade.config import EXAMPLE, Config, ConfigError, load_config
 from redgrade.constants import DEFAULT_CONFIG_PATH, FAMILY_STATUS_AVAILABLE, FAMILY_TASK_UTILITY
 from redgrade.families import FAMILIES
 from redgrade.loader import PackError, load_attacks
 from redgrade.models import AttackResult
+from redgrade.oob import OobServer
 from redgrade.render import render_attack, render_history, render_turns
 from redgrade.runner import new_canary
 from redgrade.sdk import AttackError, run_pipeline
@@ -76,6 +78,17 @@ def _progress(result: AttackResult) -> None:
     print(f"  [{mark}] {result.attack.id} {result.attack.title}", file=sys.stderr)
 
 
+@contextmanager
+def _collector(config: Config) -> Iterator[OobServer | None]:
+    """Start the out-of-band collector when ``redgrade.yaml`` has an ``oob:`` block."""
+    if config.oob is None:
+        yield None
+        return
+    with OobServer.from_config(config.oob) as server:
+        print(f"out-of-band collector listening, reachable at {server.base_url}", file=sys.stderr)
+        yield server
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     families = args.family or config.families
@@ -83,15 +96,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
         config.run.trials = args.trials
     try:
         target = build_target(config.target)
-        report = run_pipeline(
-            target,
-            policy=config.policy,
-            families=families or None,
-            packs=config.packs or None,
-            run_config=config.run,
-            on_result=_progress,
-            baseline=args.baseline,
-        )
+        with _collector(config) as oob:
+            report = run_pipeline(
+                target,
+                policy=config.policy,
+                families=families or None,
+                packs=config.packs or None,
+                run_config=config.run,
+                on_result=_progress,
+                baseline=args.baseline,
+                oob=oob,
+            )
     except AttackError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -126,14 +141,16 @@ def _cmd_baseline_update(args: argparse.Namespace) -> int:
     policy = config.policy.model_copy(update={"baseline": None})
     try:
         target = build_target(config.target)
-        report = run_pipeline(
-            target,
-            policy=policy,
-            families=families or None,
-            packs=config.packs or None,
-            run_config=config.run,
-            on_result=_progress,
-        )
+        with _collector(config) as oob:
+            report = run_pipeline(
+                target,
+                policy=policy,
+                families=families or None,
+                packs=config.packs or None,
+                run_config=config.run,
+                on_result=_progress,
+                oob=oob,
+            )
     except AttackError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -212,6 +229,9 @@ def _cmd_export(args: argparse.Namespace) -> int:
             }
             if a.tools:
                 meta["tools"] = list(a.tools)
+            if a.requires_oob:
+                # {OOB_URL} renders to an unreachable placeholder outside a collector run.
+                meta["requires_oob"] = True
             if a.history:
                 meta["history"] = render_history(a, canary)
                 meta["requires_history"] = a.requires_history

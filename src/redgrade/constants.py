@@ -51,6 +51,7 @@ DETECTOR_LLM_JUDGE: Final = "llm_judge"
 DETECTOR_TOOL_CALLED: Final = "tool_called"
 DETECTOR_FORBIDDEN_TOOL: Final = "forbidden_tool"
 DETECTOR_TOOL_ARGS_CONTAINS: Final = "tool_args_contains"
+DETECTOR_OOB_CALLBACK: Final = "oob_callback"
 
 # --- families (special aggregation) ---------------------------------------------------------
 
@@ -90,6 +91,23 @@ SKIP_NO_TOOLS_SURFACE: Final = "no tools observation surface (set tools_path on 
 SKIP_NO_HISTORY_SURFACE: Final = (
     "no conversation-history surface (put {{history}} or {{messages}} in the HTTP body, "
     "use a chat target, or a `history` parameter on function targets)"
+)
+
+# --- out-of-band collector -----------------------------------------------------------------
+
+TEMPLATE_OOB_URL: Final = "{OOB_URL}"
+DEFAULT_OOB_HOST: Final = "127.0.0.1"
+DEFAULT_OOB_WAIT: Final = 1.0
+# ``{OOB_URL}`` outside a run with a collector (e.g. ``export-dataset``): never resolvable.
+DEFAULT_OOB_PLACEHOLDER_BASE: Final = "http://oob.redgrade.invalid"
+OobHitKind = Literal["fixture", "callback"]
+OOB_HIT_FIXTURE: Final[Literal["fixture"]] = "fixture"
+OOB_HIT_CALLBACK: Final[Literal["callback"]] = "callback"
+SKIP_NO_OOB: Final = (
+    "no out-of-band collector (pass oob=True / an OobServer to the SDK, or set `oob:` in redgrade.yaml)"
+)
+OOB_NOT_FETCHED: Final = (
+    "inconclusive: the target never fetched the attacker content, so the injection was not tested"
 )
 
 # --- multi-turn detection -------------------------------------------------------------------
@@ -142,6 +160,7 @@ PIPELINE_CI_PI: Final = "ci.prompt_injection"
 PIPELINE_CI_DISCLOSURE: Final = "ci.disclosure"
 PIPELINE_CI_UTILITY: Final = "ci.utility"
 PIPELINE_CI_ATTACHMENTS: Final = "ci.attachments"
+PIPELINE_CI_OOB: Final = "ci.oob"
 PIPELINE_LAB_ADAPTIVE: Final = "lab.adaptive_pi"
 DEFAULT_CHECK_PIPELINES: Final[tuple[str, ...]] = (
     PIPELINE_CI_PI,

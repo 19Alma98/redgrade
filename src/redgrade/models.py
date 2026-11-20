@@ -15,6 +15,7 @@ from redgrade.constants import (
     MutateScope,
     Severity,
 )
+from redgrade.oob import Fixture, OobHit
 from redgrade.types import DetectorArgs, HistoryRole, JsonValue
 
 __all__ = [
@@ -107,6 +108,11 @@ class Attack(BaseModel):
     ``history`` is a forged conversation (``HistoryTurn`` items) sent before ``prompt`` / the first
     turn. With ``requires_history`` the attack is skipped (and reported) when the target cannot
     receive history natively, because flattening forged roles into the prompt tests something else.
+
+    ``fixtures`` are attacker pages served by the out-of-band collector at ``{OOB_URL}/f/<path>``
+    (see ``redgrade.oob``). ``requires_oob`` skips the attack when no collector runs;
+    ``requires_fetch`` turns a trial where the target never fetched any fixture into an error
+    (inconclusive), because the injection never reached it.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -125,6 +131,9 @@ class Attack(BaseModel):
     turns: tuple[AttackTurn, ...] = ()
     history: tuple[HistoryTurn, ...] = ()
     requires_history: bool = False
+    fixtures: tuple[Fixture, ...] = ()
+    requires_oob: bool = False
+    requires_fetch: bool = False
     detect_on: DetectOn = DETECT_ON_LAST
     detector_args: DetectorArgs = Field(default_factory=dict)
     requires_secrets: bool = False
@@ -170,6 +179,7 @@ class Trial(BaseModel):
     error: str | None = None
     latency_s: float = 0.0
     canary: str = ""
+    oob_hits: list[OobHit] = Field(default_factory=list)
 
 
 class AttackResult(BaseModel):

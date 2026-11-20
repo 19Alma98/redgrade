@@ -4,8 +4,8 @@
 exfiltration attempts, measures how often they work, and fails the pull request when security
 regresses. Self-hosted, one small package, no SaaS.
 
-> Status: **0.4 (alpha)**, with real file attachments and conversation-history attacks in development
-> for 0.5. 114 base attacks across 16 packs (plus 30 derived L4 mutations), task-utility probes, PI maturity score and
+> Status: **0.4 (alpha)**, with real file attachments, conversation-history attacks and an out-of-band
+> collector in development for 0.5. 120 base attacks across 17 packs (plus 30 derived L4 mutations), task-utility probes, PI maturity score and
 > level posture in the report. Adaptive attackers (and optional LLM-judge) are available via
 > [`redgrade deep`](docs/deep-mode.md), which needs `pip install 'redgrade[deep]'`. Built to pair with
 > [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
@@ -123,6 +123,50 @@ counted as passed. The fix the demo `hardened` app applies: drop client-sent `sy
 turns, treat earlier assistant turns as data, or keep the history server-side. Write your own with
 `history:` in a pack: see [docs/writing-attacks.md](docs/writing-attacks.md#forged-conversation-history).
 
+## Catch the agent calling the attacker (out-of-band)
+
+An agent that browses, calls APIs or follows links can leak data without saying anything in its
+reply: it just loads `https://attacker/x?d=<secret>`. Redgrade runs a small local **attacker web
+server** (the out-of-band collector) for those attacks. Per trial it serves poisoned pages, JSON
+API responses and multi-hop link chains at a unique URL, and it records every request it gets. The
+verdict is a request that **reaches the attacker**, not a string in the output:
+
+```python
+from redgrade import HttpTarget, OobServer, check
+
+report = check(target, oob=True)  # local collector on 127.0.0.1, random port
+
+# the app runs in a container or on another host: bind and advertise a reachable address
+with OobServer(host="0.0.0.0", port=8787, public_url="http://host.docker.internal:8787") as oob:
+    report = check(target, oob=oob)
+```
+
+```yaml
+# redgrade.yaml
+oob: { host: 127.0.0.1, port: 0, public_url: null, wait: 1.0 }
+```
+
+The `oob_exfiltration` family (6 attacks) covers visible and hidden instructions on fetched
+pages, exfiltration of the system prompt through a URL, a two-hop page chain that ends in a POST
+of the conversation, instructions inside a JSON API response, and an email that makes the agent
+open a link. The report lists the callbacks each successful attack produced (method and path; the
+query and body can carry secrets and stay out of the report). Two safety rules:
+
+- without a collector these attacks are **skipped and reported**;
+- a trial where the agent **never fetched** the attacker page is an **error** (inconclusive), not
+  a pass: the injection never reached the agent.
+
+Try it on the demo browsing agents, which really fetch URLs:
+
+```bash
+uv run redgrade run -c examples/redgrade.browsing.vulnerable.yaml   # exit 1: 6/6 callbacks
+uv run redgrade run -c examples/redgrade.browsing.hardened.yaml     # exit 0: fetches only user URLs
+```
+
+Write your own with `fixtures:` and `{OOB_URL}`: see
+[docs/writing-attacks.md](docs/writing-attacks.md#out-of-band-attacks-attacker-pages-and-callbacks).
+The collector is plain HTTP on an address you choose; DNS-only callbacks are not covered yet.
+
 ## Attack through uploaded files
 
 Most real apps let users attach a PDF, a DOCX or a web page, and the file is where the injection
@@ -201,6 +245,7 @@ and the report shows a coverage matrix so planned families never look "tested".
 | Malicious file attachments (PDF, DOCX, HTML, CSV, JSON, image metadata) | LLM01 | 17 | shipped (0.5 dev) |
 | Task utility / over-refusal | utility | 7 | shipped |
 | Agent goal hijack and tool misuse | LLM06, ASI01 | 8 | shipped |
+| Attacker web content and out-of-band exfiltration (agents that fetch URLs) | LLM01, LLM02, ASI01 | 6 | shipped (0.5 dev) |
 | MCP: tool poisoning, rug pull, shadowing, confused deputy | LLM06 | 6 | shipped |
 | Multi-chain / handoff injection | ASI01 | 6 | shipped |
 | Jailbreak and harmful content (opt-in) | LLM01 | 7 | shipped |
@@ -221,14 +266,16 @@ Detectors are deterministic in CI, so the same output always gives the same verd
 - **Tool trajectory** (`tool_called`, `forbidden_tool`, `tool_args_contains`): scores unauthorized or
   poisoned tool use when the target returns `tools_called` (HTTP `tools_path`, or a function that
   returns `TargetObservation`).
+- **Out-of-band callback** (`oob_callback`): the attacker server received a request from the app
+  for this trial (optionally a POST, or one carrying a configured secret).
 
 **ASR vs utility:** attack success rate (ASR) is lower-is-better and excludes the `task_utility`
 family. Utility probes are benign questions; a high utility rate means the app still answers
 normal requests. An app that refuses everything can show ASR 0% and still fail `min_utility`.
 
 Safety rules of the gate: a target that errors out is a **failure**, never a pass; attacks that
-need `secrets` or a tools observation surface are **skipped and reported** when missing; attacks
-that work only some of the time are marked **flaky**.
+need `secrets`, a tools observation surface, native history or the out-of-band collector are
+**skipped and reported** when missing; attacks that work only some of the time are marked **flaky**.
 
 ## Deep mode
 

@@ -14,6 +14,7 @@ from redgrade.models import (
     ToolCall,
     Trial,
 )
+from redgrade.oob import Fixture, OobServer
 from redgrade.policy import Policy, evaluate_policy
 from redgrade.runner import RunConfig, run_attacks
 from redgrade.sdk import AttackError, AttackReport, attack, check
@@ -31,8 +32,10 @@ __all__ = [
     "Baseline",
     "BaselinePolicy",
     "ChatTarget",
+    "Fixture",
     "HistoryTurn",
     "HttpTarget",
+    "OobServer",
     "Policy",
     "RunConfig",
     "RunResult",

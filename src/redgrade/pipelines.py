@@ -4,6 +4,7 @@ from redgrade.constants import (
     DEFAULT_CHECK_PIPELINES,
     PIPELINE_CI_ATTACHMENTS,
     PIPELINE_CI_DISCLOSURE,
+    PIPELINE_CI_OOB,
     PIPELINE_CI_PI,
     PIPELINE_CI_UTILITY,
     PIPELINE_LAB_ADAPTIVE,
@@ -14,6 +15,7 @@ __all__ = [
     "DEFAULT_CHECK_PIPELINES",
     "PIPELINE_CI_ATTACHMENTS",
     "PIPELINE_CI_DISCLOSURE",
+    "PIPELINE_CI_OOB",
     "PIPELINE_CI_PI",
     "PIPELINE_CI_UTILITY",
     "PIPELINE_LAB_ADAPTIVE",
@@ -47,6 +49,10 @@ _REGISTRY: dict[str, PipelineSpec] = {
     PIPELINE_CI_ATTACHMENTS: PipelineSpec(
         id=PIPELINE_CI_ATTACHMENTS,
         families=("file_attachments",),
+    ),
+    PIPELINE_CI_OOB: PipelineSpec(
+        id=PIPELINE_CI_OOB,
+        families=("oob_exfiltration",),
     ),
     PIPELINE_CI_UTILITY: PipelineSpec(
         id=PIPELINE_CI_UTILITY,

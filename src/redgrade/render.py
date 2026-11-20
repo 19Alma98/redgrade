@@ -6,11 +6,22 @@ import re
 from typing import cast
 
 from redgrade.attachments import Attachment, AttachmentSpec, build_attachment
+from redgrade.constants import TEMPLATE_OOB_URL
 from redgrade.history import format_history
 from redgrade.models import Attack, AttackTurn
+from redgrade.oob import Fixture, current_oob_base
 from redgrade.types import HistoryMessage, HistoryToolCall, JsonValue
 
-__all__ = ["format_history", "render", "render_attack", "render_history", "render_tools", "render_turns"]
+__all__ = [
+    "format_history",
+    "oob_url",
+    "render",
+    "render_attack",
+    "render_fixtures",
+    "render_history",
+    "render_tools",
+    "render_turns",
+]
 
 _ENC = re.compile(r"\{(b64|rot13):(.+?)\}", re.DOTALL)
 
@@ -22,8 +33,15 @@ def _encode(match: re.Match[str]) -> str:
     return codecs.encode(text, "rot13")
 
 
+def oob_url(canary: str) -> str:
+    """This trial's attacker URL: ``<collector base>/t/<canary>`` (see ``redgrade.oob``)."""
+    return f"{current_oob_base()}/t/{canary}"
+
+
 def render(template: str, canary: str) -> str:
-    """Substitute the canary, then apply encodings."""
+    """Substitute ``{OOB_URL}`` and the canary, then apply encodings."""
+    if TEMPLATE_OOB_URL in template:
+        template = template.replace(TEMPLATE_OOB_URL, oob_url(canary))
     return _ENC.sub(_encode, template.replace("{CANARY}", canary))
 
 
@@ -81,6 +99,11 @@ def render_attack(attack: Attack, canary: str) -> tuple[str, list[str]]:
         documents.append(render(attack.document, canary))
     documents.extend(render(d, canary) for d in attack.documents)
     return prompt, documents
+
+
+def render_fixtures(attack: Attack, canary: str) -> list[Fixture]:
+    """Attacker pages for one trial, with ``{OOB_URL}`` / ``{CANARY}`` rendered in their body."""
+    return [f.model_copy(update={"body": render(f.body, canary)}) for f in attack.fixtures]
 
 
 def render_attachments(specs: tuple[AttachmentSpec, ...], canary: str) -> list[Attachment]:

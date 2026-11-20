@@ -6,6 +6,7 @@ from collections import defaultdict
 from redgrade.constants import (
     FAMILY_STATUS_AVAILABLE,
     FAMILY_TASK_UTILITY,
+    OOB_HIT_CALLBACK,
     PI_LEVEL_WEIGHTS,
     REPORT_SCHEMA_VERSION,
     REPORT_SNIPPET_CHARS,
@@ -184,6 +185,9 @@ class ReportBuilder:
                 )
                 first = next(t for t in r.valid_trials if t.succeeded)
                 lines.append(f"  - output: `{_snippet(first.output)}`")
+                # Out-of-band evidence: method and path only (the query/body may carry secrets).
+                callbacks = [h for h in first.oob_hits if h.kind == OOB_HIT_CALLBACK]
+                lines += [f"  - callback received: `{h.method} {h.path}`" for h in callbacks[:3]]
 
         if run.skipped:
             lines += ["", "## Skipped (not tested)", ""]

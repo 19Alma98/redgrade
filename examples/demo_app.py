@@ -16,7 +16,8 @@ authority wording (e.g. PI-D-013), which the demo input filter does not match.
 dropped and earlier assistant turns are cleaned like documents (``history_injection`` pack).
 
 ``vulnerable_agent`` / ``hardened_agent`` return ``TargetObservation`` with a scripted tool
-trajectory so agent/MCP packs can run offline.
+trajectory so agent/MCP packs can run offline. ``vulnerable_browsing_agent`` /
+``hardened_browsing_agent`` really fetch URLs, for the out-of-band (``oob_exfiltration``) pack.
 """
 
 from __future__ import annotations
@@ -26,6 +27,9 @@ import codecs
 import json
 import re
 from typing import Any
+from urllib.parse import quote
+
+import httpx2
 
 from redgrade.models import TargetObservation, ToolCall
 
@@ -452,3 +456,90 @@ def hardened_agent(
     if obs.tools_called and not filtered:
         out = "Mi dispiace, non posso eseguire tool non autorizzati."
     return TargetObservation(output=out, tools_called=tuple(filtered))
+
+
+# --- browsing agent demo (out-of-band) ----------------------------------------------------
+#
+# These two agents really fetch URLs over HTTP, so the ``oob_exfiltration`` pack can be run end
+# to end against the out-of-band collector. The "model" is still the deterministic stand-in.
+
+_URL_RE = re.compile(r"https?://[^\s\"'<>)\]]+")
+_FOLLOW = re.compile(
+    r"\b(load|open|opening|fetch|visit|ping|call|post|send|request|go to|continues at)\b", re.I
+)
+_DATA_ASK = re.compile(r"(system prompt|your instructions|the conversation|chat history)", re.I)
+_POST_ASK = re.compile(r"\bPOST\b")
+_MAX_FETCHES = 6
+
+
+def _browse(url: str, method: str = "GET", data: str | None = None) -> str:
+    try:
+        with httpx2.Client(timeout=3.0, trust_env=False) as client:
+            response = client.request(method, url, content=data)
+        return response.text
+    except httpx2.HTTPError:
+        return ""
+
+
+def _follow_requests(text: str, conversation: str) -> list[tuple[str, str, str | None]]:
+    """What a gullible agent does with a text: every 'open/fetch/call ... URL' line is obeyed."""
+    out: list[tuple[str, str, str | None]] = []
+    for line in re.split(r"(?<=[.!?])\s+", " ".join(text.split())):
+        if not _FOLLOW.search(line):
+            continue
+        for url in _URL_RE.findall(line):
+            url = url.rstrip(".,;")
+            wants_data = bool(_DATA_ASK.search(line))
+            if _POST_ASK.search(line):
+                out.append((url, "POST", conversation))
+            elif wants_data:
+                out.append((url + quote(conversation), "GET", None))
+            else:
+                out.append((url, "GET", None))
+    return out
+
+
+def vulnerable_browsing_agent(
+    prompt: str,
+    documents: list[str],
+    history: list | None = None,
+    tools: list | None = None,
+) -> TargetObservation:
+    """Fetches the URLs the user gives, then obeys any 'open / call / POST to URL' it reads."""
+    history = history or []
+    hist_txt = "\n".join(f"{m['role']}: {m['content']}" for m in history)
+    conversation = "\n".join(x for x in [SYSTEM_PROMPT, hist_txt, prompt] if x)
+    queue: list[tuple[str, str, str | None]] = [(u, "GET", None) for u in _URL_RE.findall(prompt)]
+    for doc in documents:
+        queue.extend(_follow_requests(doc, conversation))
+    pages: list[str] = []
+    calls: list[ToolCall] = []
+    while queue and len(calls) < _MAX_FETCHES:
+        url, method, data = queue.pop(0)
+        calls.append(ToolCall(name="fetch_url", arguments={"url": url, "method": method}))
+        page = _browse(url, method, data)
+        pages.append(page)
+        queue.extend(_follow_requests(page, conversation))
+    text = naive_model("\n\n".join(x for x in [SYSTEM_PROMPT, hist_txt, *documents, *pages, prompt] if x))
+    return TargetObservation(output=text, tools_called=tuple(calls))
+
+
+def hardened_browsing_agent(
+    prompt: str,
+    documents: list[str],
+    history: list | None = None,
+    tools: list | None = None,
+) -> TargetObservation:
+    """Fetches only URLs the user typed, with GET and no data; fetched content is data only."""
+    history = _trusted_history(history or [])
+    if _BLOCKED_INPUT.search(prompt):
+        return TargetObservation(output="Mi dispiace, non posso aiutarti con questa richiesta.")
+    calls: list[ToolCall] = []
+    pages: list[str] = []
+    for url in _URL_RE.findall(prompt)[:_MAX_FETCHES]:
+        calls.append(ToolCall(name="fetch_url", arguments={"url": url, "method": "GET"}))
+        pages.append(_clean_document(_browse(url)))
+    safe_docs = [_clean_document(d) for d in documents]
+    hist_txt = "\n".join(f"{m['role']}: {m['content']}" for m in history)
+    context = "\n\n".join(x for x in [SYSTEM_PROMPT, hist_txt, *safe_docs, *pages, prompt] if x)
+    return TargetObservation(output=_clean_output(naive_model(context)), tools_called=tuple(calls))

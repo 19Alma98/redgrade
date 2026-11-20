@@ -165,6 +165,12 @@ def make_metric(
         meta = _metadata(s)
         if meta.get("requires_secrets") and not secret_list:
             return opengrade.Score(None, label=OPENGRADE_SKIPPED_LABEL, explanation="no secrets configured")
+        if meta.get("requires_oob"):
+            return opengrade.Score(
+                None,
+                label=OPENGRADE_SKIPPED_LABEL,
+                explanation="needs the out-of-band collector: run it with `redgrade run` / check(oob=True)",
+            )
         turns_raw = meta.get("turns")
         if isinstance(turns_raw, list) and turns_raw:
             inputs = _inputs_from_turns(turns_raw)

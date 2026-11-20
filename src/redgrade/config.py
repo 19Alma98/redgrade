@@ -13,14 +13,16 @@ from redgrade.constants import (
     DEFAULT_MAX_OUTPUT_CHARS,
     DEFAULT_TRIALS,
     SEVERITY_CRITICAL,
+    TARGET_TYPE_CHAT,
     TARGET_TYPE_FUNCTION,
     TARGET_TYPE_HTTP,
     TEMPLATE_DOCUMENTS,
     TEMPLATE_PROMPT,
 )
+from redgrade.oob import OobConfig
 from redgrade.policy import Policy
 from redgrade.runner import RunConfig
-from redgrade.targets import FunctionTargetConfig, HttpTargetConfig, TargetConfig
+from redgrade.targets import ChatTargetConfig, FunctionTargetConfig, HttpTargetConfig, TargetConfig
 from redgrade.types import YamlMapping
 
 
@@ -42,6 +44,7 @@ class Config(BaseModel):
     policy: Policy
     packs: list[str] = Field(default_factory=list)
     families: list[str] = Field(default_factory=list)
+    oob: OobConfig | None = None
 
 
 EXAMPLE = f"""\
@@ -72,6 +75,8 @@ policy:
   require_utility: true
   require_families: [prompt_injection_direct, prompt_injection_indirect, task_utility]
 
+# Out-of-band collector: a local "attacker" web server for agents that fetch URLs.
+# oob: {{ host: 127.0.0.1, port: 8787, public_url: "http://host.docker.internal:8787", wait: 1.0 }}
 # packs: [my_attacks.yaml]
 # families: [prompt_injection_direct]
 """
@@ -136,14 +141,21 @@ class ConfigLoader:
             target: TargetConfig = FunctionTargetConfig.model_validate(target_raw)
         elif kind == TARGET_TYPE_HTTP:
             target = HttpTargetConfig.model_validate(target_raw)
+        elif kind == TARGET_TYPE_CHAT:
+            target = ChatTargetConfig.model_validate(target_raw)
         else:
-            raise ValueError(f"unknown target type {kind!r} (use 'function' or 'http')")
+            raise ValueError(f"unknown target type {kind!r} (use 'function', 'http' or 'chat')")
+        oob_raw = raw.get("oob")
+        if oob_raw is not None and not isinstance(oob_raw, dict):
+            raise ValueError("'oob' must be a mapping")
+        oob = OobConfig.model_validate(oob_raw) if oob_raw is not None else None
         return Config(
             target=target,
             run=run,
             policy=policy,
             packs=[str(p) for p in packs_raw],
             families=[str(f) for f in families_raw],
+            oob=oob if oob is not None and oob.enabled else None,
         )
 
 
