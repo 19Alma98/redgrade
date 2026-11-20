@@ -32,6 +32,9 @@ deep = ["litellm>=1.109.1"]
 [project.scripts]
 redgrade = "redgrade.cli:main"
 
+[project.entry-points.pytest11]
+redgrade = "redgrade.pytest_plugin"
+
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "types-PyYAML>=6.0"]
 
