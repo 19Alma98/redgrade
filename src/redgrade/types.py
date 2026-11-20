@@ -104,6 +104,10 @@ class ReportDict(ReportDictRequired, total=False):
     baseline: dict[str, JsonValue]
     scorecard: dict[str, JsonValue]
     compliance: dict[str, JsonValue]
+    mode: str
+    readiness: dict[str, JsonValue]
+    findings: list[dict[str, JsonValue]]
+    notes: list[str]
 
 
 class OpenGradeRow(Protocol):

@@ -23,7 +23,7 @@ class LlmClient:
                 from litellm import completion as litellm_completion
             except ImportError as exc:
                 raise DeepError(
-                    "deep mode needs LiteLLM: pip install 'redgrade[deep]' (static CI runs do not need it)"
+                    "the attacker needs LiteLLM, a redgrade dependency: reinstall (pip install -U redgrade)"
                 ) from exc
 
             self._completion = litellm_completion
