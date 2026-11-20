@@ -15,16 +15,26 @@ from redgrade.constants import (
     DETECT_ON_ANY,
     DETECTOR_LLM_JUDGE,
     SKIP_NO_ATTACHMENTS_SURFACE,
+    SKIP_NO_HISTORY_SURFACE,
     SKIP_NO_TOOLS_SURFACE,
 )
 from redgrade.detectors import DetectorContext, get_detector
+from redgrade.history import history_text
 from redgrade.models import Attack, AttackResult, RunResult, TargetObservation, ToolCall, Trial
-from redgrade.render import attachments_text, render_attachments, render_attack, render_tools, render_turn
+from redgrade.render import (
+    attachments_text,
+    render_attachments,
+    render_attack,
+    render_history,
+    render_tools,
+    render_turn,
+)
 from redgrade.targets import (
     Target,
     invoke_target,
     normalize_observation,
     target_accepts_attachments,
+    target_accepts_history,
     target_observes_tools,
 )
 from redgrade.types import HistoryMessage
@@ -61,12 +71,14 @@ class AttackRunner:
     ) -> Trial:
         canary = canary or new_canary()
         tools = render_tools(attack, canary)
+        forged = render_history(attack, canary)
+        forged_inputs = history_text(forged)
         if not attack.turns:
             prompt, documents = render_attack(attack, canary)
             files = render_attachments(attack.attachments, canary)
             start = time.perf_counter()
             try:
-                obs = normalize_observation(invoke_target(target, prompt, documents, [], tools, files))
+                obs = normalize_observation(invoke_target(target, prompt, documents, forged, tools, files))
             except Exception as exc:  # the target is user code; any failure is a result, not a crash
                 return Trial(
                     succeeded=False,
@@ -80,15 +92,15 @@ class AttackRunner:
                 config,
                 canary,
                 obs,
-                "\n".join([prompt, *documents, *attachments_text(files)]),
+                "\n".join([*forged_inputs, prompt, *documents, *attachments_text(files)]),
                 latency,
             )
 
         start = time.perf_counter()
-        history: list[HistoryMessage] = []
+        history: list[HistoryMessage] = list(forged)
         turn_outputs: list[str] = []
         last_tools: list[ToolCall] = []
-        all_inputs: list[str] = []
+        all_inputs: list[str] = list(forged_inputs)
         try:
             for turn in attack.turns:
                 prompt, documents = render_turn(turn, canary)
@@ -177,7 +189,8 @@ class AttackRunner:
     ) -> RunResult:
         """Run every attack ``config.trials`` times. Attacks that need secrets are skipped when none
         are configured, because without them a leak cannot be detected (and a skip is not a pass).
-        Attacks that need tool observation are skipped when the target has no tools surface."""
+        Attacks that need tool observation are skipped when the target has no tools surface, and
+        attacks with forged history when the target cannot receive history natively."""
 
         def one(attack: Attack) -> AttackResult:
             if attack.detector == DETECTOR_LLM_JUDGE:
@@ -191,6 +204,8 @@ class AttackRunner:
                 return AttackResult(attack=attack, skipped_reason=SKIP_NO_ATTACHMENTS_SURFACE)
             if attack.requires_tools and not target_observes_tools(target):
                 return AttackResult(attack=attack, skipped_reason=SKIP_NO_TOOLS_SURFACE)
+            if attack.requires_history and not target_accepts_history(target):
+                return AttackResult(attack=attack, skipped_reason=SKIP_NO_HISTORY_SURFACE)
             result = AttackResult(attack=attack)
             for _ in range(config.trials):
                 result.trials.append(self.run_trial(attack, target, config))

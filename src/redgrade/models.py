@@ -15,13 +15,14 @@ from redgrade.constants import (
     MutateScope,
     Severity,
 )
-from redgrade.types import DetectorArgs, JsonValue
+from redgrade.types import DetectorArgs, HistoryRole, JsonValue
 
 __all__ = [
     "SEVERITIES",
     "Attack",
     "AttackResult",
     "AttackTurn",
+    "HistoryTurn",
     "RunResult",
     "TargetObservation",
     "ToolCall",
@@ -58,6 +59,35 @@ class AttackTurn(BaseModel):
     attachments: tuple[AttachmentSpec, ...] = ()
 
 
+class HistoryTurn(BaseModel):
+    """One forged message of the conversation history sent *before* the attack prompt.
+
+    The attacker controls the history an app receives from its client (chat UIs, mobile apps and
+    agent frameworks usually send the whole conversation). Forged turns can pose as the system or
+    operator (``system``), as the assistant agreeing to something earlier (``assistant``, optionally
+    with ``tool_calls``), or as a tool result carrying an injection (``tool``). ``content`` and tool
+    call arguments use the same ``{CANARY}`` / ``{b64:...}`` templates as prompts.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    role: HistoryRole
+    content: str = ""
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: tuple[ToolCall, ...] = ()
+
+    @model_validator(mode="after")
+    def _check_role_fields(self) -> Self:
+        if self.tool_calls and self.role != "assistant":
+            raise ValueError("tool_calls are only allowed on assistant history turns")
+        if self.tool_call_id and self.role != "tool":
+            raise ValueError("tool_call_id is only allowed on tool history turns")
+        if not self.content and not self.tool_calls:
+            raise ValueError(f"{self.role} history turn needs content")
+        return self
+
+
 class Attack(BaseModel):
     """One attack from a pack.
 
@@ -73,6 +103,10 @@ class Attack(BaseModel):
     ``delivery`` is ``direct`` (the prompt is sent as the user message) or ``document`` (the
     prompt is a harmless user question and ``document`` is a poisoned document the app reads,
     i.e. indirect prompt injection).
+
+    ``history`` is a forged conversation (``HistoryTurn`` items) sent before ``prompt`` / the first
+    turn. With ``requires_history`` the attack is skipped (and reported) when the target cannot
+    receive history natively, because flattening forged roles into the prompt tests something else.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -89,6 +123,8 @@ class Attack(BaseModel):
     documents: tuple[str, ...] = ()
     attachments: tuple[AttachmentSpec, ...] = ()
     turns: tuple[AttackTurn, ...] = ()
+    history: tuple[HistoryTurn, ...] = ()
+    requires_history: bool = False
     detect_on: DetectOn = DETECT_ON_LAST
     detector_args: DetectorArgs = Field(default_factory=dict)
     requires_secrets: bool = False

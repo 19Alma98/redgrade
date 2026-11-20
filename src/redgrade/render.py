@@ -3,10 +3,14 @@
 import base64
 import codecs
 import re
+from typing import cast
 
 from redgrade.attachments import Attachment, AttachmentSpec, build_attachment
+from redgrade.history import format_history
 from redgrade.models import Attack, AttackTurn
-from redgrade.types import HistoryMessage, JsonValue
+from redgrade.types import HistoryMessage, HistoryToolCall, JsonValue
+
+__all__ = ["format_history", "render", "render_attack", "render_history", "render_tools", "render_turns"]
 
 _ENC = re.compile(r"\{(b64|rot13):(.+?)\}", re.DOTALL)
 
@@ -38,12 +42,23 @@ def render_tools(attack: Attack, canary: str) -> list[JsonValue]:
     return [render_json(t, canary) for t in attack.tools]
 
 
-def format_history(history: list[HistoryMessage]) -> str:
-    lines: list[str] = []
-    for msg in history:
-        label = "User" if msg["role"] == "user" else "Assistant"
-        lines.append(f"{label}: {msg['content']}")
-    return "\n".join(lines)
+def render_history(attack: Attack, canary: str) -> list[HistoryMessage]:
+    """The attack's forged history with ``{CANARY}`` / encodings rendered, as wire messages."""
+    out: list[HistoryMessage] = []
+    for turn in attack.history:
+        msg: HistoryMessage = {"role": turn.role, "content": render(turn.content, canary)}
+        if turn.name:
+            msg["name"] = render(turn.name, canary)
+        if turn.tool_call_id:
+            msg["tool_call_id"] = turn.tool_call_id
+        if turn.tool_calls:
+            calls: list[HistoryToolCall] = []
+            for call in turn.tool_calls:
+                args = cast(dict[str, JsonValue], render_json(dict(call.arguments), canary))
+                calls.append({"id": call.id, "name": call.name, "arguments": args})
+            msg["tool_calls"] = calls
+        out.append(msg)
+    return out
 
 
 def render_turn(turn: AttackTurn, canary: str) -> tuple[str, list[str]]:

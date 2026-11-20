@@ -4,8 +4,8 @@
 exfiltration attempts, measures how often they work, and fails the pull request when security
 regresses. Self-hosted, one small package, no SaaS.
 
-> Status: **0.4 (alpha)**, with real file attachments in development for 0.5. 105 base attacks across
-> 15 packs (plus 30 derived L4 mutations), task-utility probes, PI maturity score and
+> Status: **0.4 (alpha)**, with real file attachments and conversation-history attacks in development
+> for 0.5. 114 base attacks across 16 packs (plus 30 derived L4 mutations), task-utility probes, PI maturity score and
 > level posture in the report. Adaptive attackers (and optional LLM-judge) are available via
 > [`redgrade deep`](docs/deep-mode.md), which needs `pip install 'redgrade[deep]'`. Built to pair with
 > [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
@@ -31,11 +31,12 @@ uv run redgrade run -c examples/redgrade.hardened.yaml --trials 3       # exit c
 
 | | vulnerable app | hardened app |
 |---|---|---|
-| Overall ASR | 71% | 1% |
-| PI Maturity Score | 16/100 | 98/100 |
+| Overall ASR | 73% | 1% |
+| PI Maturity Score | 15/100 | 98/100 |
 | Highest resisted level | n/a | L5 |
 | Indirect prompt injection | 50% | 0% |
 | Malicious file attachments | 85% | 0% |
+| Forged conversation history | 100% | 0% |
 | RAG poisoning | 60% | 0% |
 | Leaks (prompt, secrets, PII) | 100% | 0% |
 | Gate | **FAILED** | passed |
@@ -63,6 +64,11 @@ target:
   # headers: { Authorization: "Bearer ${APP_TOKEN}" }
   # body: { message: "{{prompt}}", context: "{{documents}}", history: "{{history}}" }
   # response_path: choices.0.message.content
+  # type: chat                    # OpenAI- or Anthropic-compatible messages endpoint
+  # url: http://localhost:8000/v1/chat/completions
+  # api: openai                   # or: anthropic
+  # model: my-agent
+  # system_prompt: "..."          # when the endpoint is the bare model behind your prompt
 
 run: { trials: 3 }                # model output is random: repeat every attack
 secrets: ["a distinctive phrase of your system prompt"]
@@ -84,8 +90,38 @@ policy:
 For indirect attacks Redgrade passes the poisoned text as `documents`: map it to whatever your app
 treats as retrieved or uploaded content. Multi-turn attacks call your target once per turn; prior
 user and assistant messages are passed as `history` (third argument to a function target, or
-`{{history}}` in an HTTP body). If the target does not accept history, Redgrade prepends formatted
-prior turns to the current prompt.
+`{{history}}` / `{{messages}}` in an HTTP body). If the target does not accept history, Redgrade
+prepends formatted prior turns to the current prompt.
+
+## Attack through the conversation history
+
+Chat UIs, mobile apps and agent frameworks usually send the **whole conversation** on every call.
+If your server trusts it, the attacker writes the history: a fake operator `system` turn, an
+`assistant` turn that "already agreed", a `tool` result that carries an instruction, a forged
+half-done tool trajectory the agent "completes". The `history_injection` family (9 attacks, L2–L5)
+sends those turns through the native fields of your API:
+
+```python
+from redgrade import ChatTarget, HttpTarget
+
+# your endpoint takes the conversation as a list of {role, content, ...}
+HttpTarget("http://localhost:8000/chat", body={"messages": "{{messages}}"}, response_path="reply")
+
+# your endpoint is OpenAI- or Anthropic-compatible: roles, tool_calls and tool results are native
+ChatTarget(
+    "http://localhost:8000/v1/chat/completions",  # or .../v1/messages with api="anthropic"
+    model="support-agent",
+    system_prompt="You are Acme support...",  # only when the endpoint is the bare model
+    headers={"Authorization": "Bearer ${APP_TOKEN}"},
+)
+```
+
+`ChatTarget` also sends the attack's tool catalog as `tools` and reads the tool calls the model
+asks for (observed, never executed), so agent and MCP attacks run against it without `tools_path`.
+Targets that cannot receive history natively have these attacks **skipped and reported**, never
+counted as passed. The fix the demo `hardened` app applies: drop client-sent `system` / `tool`
+turns, treat earlier assistant turns as data, or keep the history server-side. Write your own with
+`history:` in a pack: see [docs/writing-attacks.md](docs/writing-attacks.md#forged-conversation-history).
 
 ## Attack through uploaded files
 
@@ -145,7 +181,7 @@ assert report.passed, report.summary()
 # report = check_deep(target)
 ```
 
-`check()` runs the default CI pipelines only (no LiteLLM; install `redgrade[deep]` only for lab runs). `attack()` is the full escape hatch with explicit `families` / packs. The CLI command `redgrade check` is an alias of `redgrade run` for CI workflows; it still accepts `type: function` for offline demos, while the SDK `check()` requires an `HttpTarget`.
+`check()` and `attack()` accept an `HttpTarget` or a `ChatTarget`. `check()` runs the default CI pipelines only (no LiteLLM; install `redgrade[deep]` only for lab runs). `attack()` is the full escape hatch with explicit `families` / packs. The CLI command `redgrade check` is an alias of `redgrade run` for CI workflows; it still accepts `type: function` for offline demos, while the SDK `check()` requires an HTTP endpoint (`HttpTarget` or `ChatTarget`).
 
 ## What it covers today
 
@@ -161,6 +197,7 @@ and the report shows a coverage matrix so planned families never look "tested".
 | Unbounded consumption | LLM10 | 5 | shipped |
 | RAG and vector poisoning | LLM08 | 5 | shipped |
 | Multi-turn escalation | LLM01 | 11 | shipped |
+| Conversation history injection (forged system / assistant / tool turns) | LLM01 | 9 | shipped (0.5 dev) |
 | Malicious file attachments (PDF, DOCX, HTML, CSV, JSON, image metadata) | LLM01 | 17 | shipped (0.5 dev) |
 | Task utility / over-refusal | utility | 7 | shipped |
 | Agent goal hijack and tool misuse | LLM06, ASI01 | 8 | shipped |

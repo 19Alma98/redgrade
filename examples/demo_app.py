@@ -12,6 +12,9 @@ stand-in model. Plain override phrases are blocked in user input, so L4 derived 
 usually fail before ``naive_model`` decodes them. The deliberate residual gap is multilingual
 authority wording (e.g. PI-D-013), which the demo input filter does not match.
 
+``hardened`` also distrusts client-sent conversation history: forged ``system`` / ``tool`` turns are
+dropped and earlier assistant turns are cleaned like documents (``history_injection`` pack).
+
 ``vulnerable_agent`` / ``hardened_agent`` return ``TargetObservation`` with a scripted tool
 trajectory so agent/MCP packs can run offline.
 """
@@ -178,6 +181,18 @@ def _clean_output(out: str) -> str:
     return out[:MAX_OUTPUT]
 
 
+def _trusted_history(history: list) -> list[dict[str, str]]:
+    """Client-sent history is untrusted: drop system/tool turns, treat assistant text as data."""
+    out: list[dict[str, str]] = []
+    for m in history:
+        role = m.get("role")
+        if role == "user":
+            out.append({"role": "user", "content": m["content"]})
+        elif role == "assistant" and m.get("content"):
+            out.append({"role": "assistant", "content": _clean_document(m["content"])})
+    return out
+
+
 def refuse_all(prompt: str, documents: list[str], history: list | None = None) -> str:
     """Over-refusal target: blocks every request. ASR can look perfect while utility is zero."""
     return "Mi dispiace, non posso aiutarti con questa richiesta."
@@ -189,7 +204,7 @@ def hardened(
     history: list | None = None,
     attachments: list | None = None,
 ) -> str:
-    history = history or []
+    history = _trusted_history(history or [])
     user_text = [m["content"] for m in history if m.get("role") == "user"]
     blob = "\n".join([prompt, *user_text])
     if _BLOCKED_INPUT.search(blob):
@@ -412,8 +427,8 @@ def hardened_agent(
     history: list | None = None,
     tools: list | None = None,
 ) -> TargetObservation:
-    """Same stand-in, but drops forbidden / poisoned tool calls."""
-    history = history or []
+    """Same stand-in, but drops forbidden / poisoned tool calls and untrusted history turns."""
+    history = _trusted_history(history or [])
     user_text = [m["content"] for m in history if m.get("role") == "user"]
     blob = "\n".join([prompt, *user_text])
     if _BLOCKED_INPUT.search(blob):

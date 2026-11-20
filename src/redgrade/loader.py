@@ -70,6 +70,22 @@ class PackLoader:
             raise PackError(f"{origin}: {attack_id}: tools must be a list")
         return tuple(tools)
 
+    def _parse_history(self, raw: dict[str, object], origin: str, attack_id: str) -> dict[str, object]:
+        """``history`` (forged conversation) and ``requires_history`` (default: true when set)."""
+        items = raw.get("history")
+        if items is None:
+            if raw.get("requires_history"):
+                raise PackError(f"{origin}: {attack_id}: requires_history needs a history list")
+            return {}
+        if not isinstance(items, list) or not items:
+            raise PackError(f"{origin}: {attack_id}: history must be a non-empty list")
+        turns: list[object] = []
+        for i, item in enumerate(items):
+            if not isinstance(item, dict) or "role" not in item:
+                raise PackError(f"{origin}: {attack_id}: history item {i} must be a mapping with a role")
+            turns.append(item)
+        return {"history": turns, "requires_history": bool(raw.get("requires_history", True))}
+
     def _finalize(self, attacks: list[Attack]) -> list[Attack]:
         try:
             attacks = MutationExpander().expand(attacks)
@@ -150,6 +166,7 @@ class PackLoader:
                             "requires_tools": bool(raw.get("requires_tools", False)),
                             "tools": self._parse_tools(raw, origin, str(raw.get("id", "?"))),
                             "description": str(raw.get("description", "")),
+                            **self._parse_history(raw, origin, str(raw.get("id", "?"))),
                             **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
                     )
@@ -183,6 +200,7 @@ class PackLoader:
                             "requires_tools": bool(raw.get("requires_tools", False)),
                             "tools": self._parse_tools(raw, origin, str(raw.get("id", "?"))),
                             "description": str(raw.get("description", "")),
+                            **self._parse_history(raw, origin, str(raw.get("id", "?"))),
                             **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
                     )

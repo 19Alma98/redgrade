@@ -16,7 +16,7 @@ from redgrade.constants import DEFAULT_CONFIG_PATH, FAMILY_STATUS_AVAILABLE, FAM
 from redgrade.families import FAMILIES
 from redgrade.loader import PackError, load_attacks
 from redgrade.models import AttackResult
-from redgrade.render import render_attack, render_turns
+from redgrade.render import render_attack, render_history, render_turns
 from redgrade.runner import new_canary
 from redgrade.sdk import AttackError, run_pipeline
 from redgrade.targets import TargetError, build_target
@@ -212,6 +212,9 @@ def _cmd_export(args: argparse.Namespace) -> int:
             }
             if a.tools:
                 meta["tools"] = list(a.tools)
+            if a.history:
+                meta["history"] = render_history(a, canary)
+                meta["requires_history"] = a.requires_history
             if a.turns:
                 rendered = render_turns(a, canary)
                 row = {

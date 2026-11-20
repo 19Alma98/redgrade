@@ -37,6 +37,7 @@ _REGISTRY: dict[str, PipelineSpec] = {
             "prompt_injection_direct",
             "prompt_injection_indirect",
             "multi_turn",
+            "history_injection",
         ),
     ),
     PIPELINE_CI_DISCLOSURE: PipelineSpec(

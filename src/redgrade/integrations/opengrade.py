@@ -33,6 +33,7 @@ Written against the OpenGrade SDK's documented custom-metric API (``@opengrade.m
 """
 
 from collections.abc import Callable, Mapping
+from typing import cast
 
 from redgrade.constants import (
     DEFAULT_MAX_OUTPUT_CHARS,
@@ -103,7 +104,7 @@ def attack_task(
             canary = str(meta.get("canary", ""))
             detect_on = str(meta.get("detect_on", DETECT_ON_LAST))
             detector_name = str(meta.get("detector", DETECTOR_CANARY))
-            history: list[HistoryMessage] = []
+            history: list[HistoryMessage] = _forged_history(meta)
             all_inputs: list[str] = []
             last_output = ""
             for turn in turns_raw:
@@ -134,9 +135,17 @@ def attack_task(
 
         documents_raw = meta.get("documents") or []
         documents = [str(d) for d in documents_raw] if isinstance(documents_raw, list) else []
-        return normalize_observation(call(str(item.input), documents, [])).output
+        return normalize_observation(call(str(item.input), documents, _forged_history(meta))).output
 
     return task
+
+
+def _forged_history(meta: Mapping[str, object]) -> list[HistoryMessage]:
+    """Forged conversation exported in ``metadata.history`` (``history_injection`` attacks)."""
+    raw = meta.get("history")
+    if not isinstance(raw, list):
+        return []
+    return [cast(HistoryMessage, dict(m)) for m in raw if isinstance(m, dict) and "role" in m]
 
 
 def make_metric(
