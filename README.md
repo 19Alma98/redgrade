@@ -5,7 +5,7 @@ exfiltration attempts, measures how often they work, and fails the pull request 
 regresses. Self-hosted, one small package, no SaaS.
 
 > Status: **0.4 (alpha)**, with real file attachments, conversation-history attacks and an out-of-band
-> collector in development for 0.5. 120 base attacks across 17 packs (plus 50 derived L4 mutations: encodings, obfuscation, framing and
+> collector in development for 0.5. 120 base attacks across 17 packs (plus 55 derived L4 mutations: encodings, obfuscation, framing and
 > seeded Best-of-N),
 > every attack on a five-level ladder, task-utility probes, PI maturity score and
 > level posture in the report. Adaptive attackers (and optional LLM-judge) are available via

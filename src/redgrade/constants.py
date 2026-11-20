@@ -163,9 +163,15 @@ MUTATION_PRESETS: Final[dict[str, tuple[str, ...]]] = {
     ),
 }
 DEFAULT_BON_VARIANTS: Final = 5
-MutateScope = Literal["prompt", "document", "all"]
+# Which text an L4 mutation rewrites. ``all`` = prompt + documents/attachments + forged history +
+# tool descriptions; ``fixtures`` (attacker pages served by the OOB collector) is opt-in only,
+# because wrapping a whole HTML/JSON body changes its format.
+MutateScope = Literal["prompt", "document", "history", "tools", "fixtures", "all"]
 MUTATE_SCOPE_PROMPT: Final[Literal["prompt"]] = "prompt"
 MUTATE_SCOPE_DOCUMENT: Final[Literal["document"]] = "document"
+MUTATE_SCOPE_HISTORY: Final[Literal["history"]] = "history"
+MUTATE_SCOPE_TOOLS: Final[Literal["tools"]] = "tools"
+MUTATE_SCOPE_FIXTURES: Final[Literal["fixtures"]] = "fixtures"
 MUTATE_SCOPE_ALL: Final[Literal["all"]] = "all"
 
 # --- pipelines / deep defaults --------------------------------------------------------------

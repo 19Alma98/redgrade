@@ -356,8 +356,19 @@ same family, detector, and delivery as the seed.
 - Seeds without `mutations` are not auto-expanded (keeps CI size bounded).
 - `redgrade list` prints every kind and preset.
 
-`mutate_scope` controls which text is mutated: `prompt`, `document`, or `all` (default). For
-multi-turn seeds, `all` applies to non-empty fields on each turn.
+`mutate_scope` controls which text is mutated:
+
+| scope | rewrites |
+|---|---|
+| `prompt` | the user prompt (and each turn's prompt) |
+| `document` | documents and attachment payloads (the cover text stays benign) |
+| `history` | the `content` of every forged history turn (e.g. an encoded instruction inside a fake tool result) |
+| `tools` | every `description` in the tool catalog (obfuscated MCP tool poisoning) |
+| `fixtures` | the body of attacker pages served by the OOB collector; opt-in only, never part of `all`, because wrapping an HTML/JSON body changes its format |
+| `all` (default) | prompt + document + history + tools |
+
+For multi-turn seeds, `prompt`, `document` and `all` apply to non-empty fields on each turn. The
+built-in packs use the new scopes on HI-003 (`history`), MCP-001 (`tools`) and OOB-001 (`fixtures`).
 
 **Encoding happens at render time**, after `{CANARY}` and `{OOB_URL}` are substituted. A model that
 decodes and obeys a Base64 payload therefore prints this trial's real canary, and the attack is

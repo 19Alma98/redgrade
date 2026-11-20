@@ -523,7 +523,7 @@ def vulnerable_browsing_agent(
         calls.append(ToolCall(name="fetch_url", arguments={"url": url, "method": method}))
         page = _browse(url, method, data)
         pages.append(page)
-        queue.extend(_follow_requests(page, conversation))
+        queue.extend(_follow_requests(_expand(page), conversation))  # decodes, then obeys
     text = naive_model("\n\n".join(x for x in [SYSTEM_PROMPT, hist_txt, *documents, *pages, prompt] if x))
     return TargetObservation(output=text, tools_called=tuple(calls))
 

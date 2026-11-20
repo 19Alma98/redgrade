@@ -33,11 +33,15 @@ from redgrade.constants import (
     DEFAULT_MUTATIONS,
     MUTATE_SCOPE_ALL,
     MUTATE_SCOPE_DOCUMENT,
+    MUTATE_SCOPE_FIXTURES,
+    MUTATE_SCOPE_HISTORY,
     MUTATE_SCOPE_PROMPT,
+    MUTATE_SCOPE_TOOLS,
     MUTATION_PRESETS,
     MutateScope,
 )
 from redgrade.models import Attack, AttackTurn
+from redgrade.types import JsonValue
 
 __all__ = [
     "ENCODERS",
@@ -388,6 +392,20 @@ def _mutate_attachments(
     return tuple(s.model_copy(update={"payload": _mutate_text(kind, s.payload, seed)}) for s in specs)
 
 
+def _mutate_tool(kind: str, node: JsonValue, seed: int) -> JsonValue:
+    """Rewrite every ``description`` string in a tool catalog entry (where MCP poisoning lives)."""
+    if isinstance(node, list):
+        return [_mutate_tool(kind, x, seed) for x in node]
+    if isinstance(node, dict):
+        return {
+            k: _mutate_text(kind, v, seed)
+            if k == "description" and isinstance(v, str)
+            else _mutate_tool(kind, v, seed)
+            for k, v in node.items()
+        }
+    return node
+
+
 def _apply_scope(attack: Attack, kind: str, scope: MutateScope) -> dict[str, object]:
     seed = _seed_for(attack.id, kind)
     updates: dict[str, object] = {}
@@ -405,6 +423,19 @@ def _apply_scope(attack: Attack, kind: str, scope: MutateScope) -> dict[str, obj
 
     if mutate_document and attack.attachments:
         updates["attachments"] = _mutate_attachments(kind, attack.attachments, seed)
+
+    if scope in (MUTATE_SCOPE_HISTORY, MUTATE_SCOPE_ALL) and attack.history:
+        updates["history"] = tuple(
+            t.model_copy(update={"content": _mutate_text(kind, t.content, seed)}) for t in attack.history
+        )
+
+    if scope in (MUTATE_SCOPE_TOOLS, MUTATE_SCOPE_ALL) and attack.tools:
+        updates["tools"] = tuple(_mutate_tool(kind, t, seed) for t in attack.tools)
+
+    if scope == MUTATE_SCOPE_FIXTURES and attack.fixtures:
+        updates["fixtures"] = tuple(
+            f.model_copy(update={"body": _mutate_text(kind, f.body, seed)}) for f in attack.fixtures
+        )
 
     if attack.turns and (mutate_prompt or mutate_document):
         new_turns: list[AttackTurn] = []
