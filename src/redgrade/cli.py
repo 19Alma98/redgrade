@@ -329,6 +329,41 @@ def _cmd_distill(args: argparse.Namespace) -> int:
     return 0 if changed or not results else 1
 
 
+def _cmd_compare(args: argparse.Namespace) -> int:
+    """A/B: the same attacks against the app without and with a defense."""
+    from redgrade.defense import compare_defense
+
+    base = load_config(args.config)
+    defended = load_config(args.defended)
+    if args.trials:
+        base.run.trials = args.trials
+    try:
+        judge = prepare_extensions(base)
+        prepare_extensions(defended.model_copy(update={"judge": None}))
+        with _collector(base) as oob:
+            result = compare_defense(
+                build_target(base.target),
+                build_target(defended.target),
+                families=args.family or base.families or None,
+                packs=base.packs or None,
+                run_config=base.run,
+                oob=oob,
+                judge=judge,
+                baseline_label=Path(args.config).stem,
+                defended_label=Path(args.defended).stem,
+            )
+    except (PluginError, JudgeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    md = result.to_markdown()
+    print(md)
+    if args.report:
+        Path(args.report).write_text(md, encoding="utf-8")
+    if args.json:
+        Path(args.json).write_text(result.to_json(), encoding="utf-8")
+    return 0 if result.effective(max_utility_drop=args.max_utility_drop) else 1
+
+
 def _cmd_compliance(args: argparse.Namespace) -> int:
     """Which framework controls redgrade's attack families map to (no run)."""
     from redgrade.compliance import FAMILY_CONTROLS, FRAMEWORKS
@@ -579,6 +614,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--attacker-model", help="LiteLLM model that writes the rubrics")
     p.add_argument("--attacker-api-base")
     p.set_defaults(func=_cmd_distill)
+
+    p = sub.add_parser("compare", help="A/B: measure a defense (same attacks, without vs with it)")
+    p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH, help="baseline app (redgrade.yaml)")
+    p.add_argument(
+        "--defended", "-d", required=True, help="config of the defended app (only its target is used)"
+    )
+    p.add_argument("--family", action="append", help="only this family (repeatable)")
+    p.add_argument("--trials", type=int, help="override run.trials")
+    p.add_argument("--max-utility-drop", type=float, default=0.0, help="tolerated utility loss (0..1)")
+    p.add_argument("--report", help="write the Markdown comparison to this file")
+    p.add_argument("--json", help="write the JSON comparison to this file")
+    p.set_defaults(func=_cmd_compare)
 
     p = sub.add_parser("compliance", help="show which framework controls the attack families cover")
     p.add_argument("--framework", action="append", help="owasp_llm_2025, owasp_asi_2026, mitre_atlas, ...")

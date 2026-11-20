@@ -5,6 +5,7 @@ from collections.abc import Callable
 from redgrade.attachments import Attachment, AttachmentSpec
 from redgrade.baseline import Baseline, BaselinePolicy, Waiver
 from redgrade.classifiers import hf_text_classifier, register_classifier
+from redgrade.defense import GuardedTarget, compare_defense
 from redgrade.detectors import DetectorContext, register_detector, unregister_detector
 from redgrade.judge import Judge, JudgeCache
 from redgrade.loader import load_attacks
@@ -35,6 +36,7 @@ __all__ = [
     "AttackResult",
     "Baseline",
     "DetectorContext",
+    "GuardedTarget",
     "Judge",
     "JudgeCache",
     "BaselinePolicy",
@@ -53,6 +55,7 @@ __all__ = [
     "attack",
     "check",
     "check_deep",
+    "compare_defense",
     "evaluate_policy",
     "hf_text_classifier",
     "load_plugins",
