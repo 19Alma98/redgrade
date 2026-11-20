@@ -12,7 +12,7 @@ from pathlib import Path
 
 from redgrade import __version__
 from redgrade.baseline import DEFAULT_BASELINE_PATH, BaselineError
-from redgrade.config import EXAMPLE, Config, ConfigError, load_config
+from redgrade.config import EXAMPLE, Config, ConfigError, JudgeConfig, load_config
 from redgrade.constants import (
     DEEP_STRATEGIES,
     DEFAULT_CONFIG_PATH,
@@ -24,7 +24,7 @@ from redgrade.detectors import list_detectors
 from redgrade.extensions import prepare_extensions
 from redgrade.families import FAMILIES
 from redgrade.judge import JudgeError
-from redgrade.loader import PackError, load_attacks
+from redgrade.loader import PackError, load_attacks, load_pack_file
 from redgrade.models import AttackResult
 from redgrade.mutations import available_mutations
 from redgrade.oob import OobServer
@@ -280,6 +280,55 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     return 0 if n else 1
 
 
+def _cmd_distill(args: argparse.Namespace) -> int:
+    """Lab: turn llm_judge attacks into deterministic rubrics validated against the judge."""
+    from redgrade.deep.distill import DistillResult, distill_attacks, distilled_pack
+    from redgrade.deep.errors import DeepError
+    from redgrade.deep.generate import _default_chat
+    from redgrade.extensions import build_judge
+    from redgrade.packio import read_pack, write_pack
+
+    config = load_config(args.config)
+    try:
+        prepare_extensions(config.model_copy(update={"judge": None}))
+        if args.judge_model:
+            judge = build_judge(JudgeConfig(model=args.judge_model, api_base=args.judge_api_base))
+        else:
+            judge = build_judge(config.judge)
+        if judge is None:
+            print("distill needs a judge: --judge-model or `judge:` in redgrade.yaml", file=sys.stderr)
+            return 2
+        author = _default_chat(args.attacker_model, args.attacker_api_base)
+        raw = read_pack(args.pack)
+        attacks = load_pack_file(args.pack)
+        target = build_target(config.target)
+
+        def progress(res: DistillResult) -> None:
+            agree = "" if res.agreement is None else f" agreement {res.agreement:.2f}"
+            print(f"  [{res.status:<12}] {res.attack_id}{agree} - {res.message}", file=sys.stderr)
+
+        results = distill_attacks(
+            attacks,
+            target,
+            judge=judge.chat,
+            author=author,
+            trials=args.trials,
+            run_config=config.run,
+            on_result=progress,
+            synthesize=args.synthesize,
+            min_agreement=args.min_agreement,
+            min_precision=args.min_precision,
+        )
+    except (DeepError, JudgeError, PluginError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    pack, changed = distilled_pack(raw, results, judge_id=judge.judge_id)
+    out = args.out or args.pack
+    write_pack(out, pack, header="Distilled by `redgrade distill`: llm_judge -> rubric where validated.")
+    print(f"froze {changed}/{len(results)} judged attack(s) into rubrics; wrote {out}", file=sys.stderr)
+    return 0 if changed or not results else 1
+
+
 def _cmd_translate(args: argparse.Namespace) -> int:
     """Lab: add translated (L4) variants of a pack's attacks, frozen for CI."""
     from redgrade.deep.errors import DeepError
@@ -489,6 +538,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--attacker-api-base", help="attacker API base URL")
     p.add_argument("--out", "-o", required=True, help="pack YAML to write")
     p.set_defaults(func=_cmd_generate)
+
+    p = sub.add_parser(
+        "distill",
+        help="lab: freeze llm_judge attacks into deterministic rubrics validated against the judge",
+    )
+    p.add_argument("pack", help="pack YAML with llm_judge attacks")
+    p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH, help="redgrade.yaml (target, judge)")
+    p.add_argument("--out", "-o", help="pack YAML to write (default: overwrite the input)")
+    p.add_argument("--trials", type=int, default=3, help="target outputs collected per attack")
+    p.add_argument("--synthesize", type=int, default=3, help="synthetic examples per side (0: none)")
+    p.add_argument("--min-agreement", type=float, default=0.9)
+    p.add_argument("--min-precision", type=float, default=0.9)
+    p.add_argument("--judge-model", help="LiteLLM model for the judge (default: `judge:` in config)")
+    p.add_argument("--judge-api-base")
+    p.add_argument("--attacker-model", help="LiteLLM model that writes the rubrics")
+    p.add_argument("--attacker-api-base")
+    p.set_defaults(func=_cmd_distill)
 
     p = sub.add_parser("translate", help="lab: add translated (L4) variants of a pack's attacks")
     p.add_argument("pack", help="pack YAML to translate")
