@@ -6,6 +6,7 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from redgrade.config import ConfigError, _as_int
+from redgrade.constants import DEEP_STRATEGIES
 from redgrade.deep.llm_target import LlmTarget
 from redgrade.policy import Policy
 from redgrade.targets import Target, build_target
@@ -34,6 +35,8 @@ class DeepConfig(BaseModel):
     packs: list[str] = Field(default_factory=list)
     detector: str = "canary"
     judge: DeepJudgeConfig = Field(default_factory=DeepJudgeConfig)
+    # Empty: ``deep_attack`` default (``pair``). Known: see ``constants.DEEP_STRATEGIES``.
+    strategies: list[str] = Field(default_factory=list)
 
 
 def build_deep_target(raw: YamlMapping) -> Target:
@@ -78,6 +81,12 @@ class DeepConfigLoader:
         secrets_raw = raw.get("secrets") or []
         hosts_raw = raw.get("allowed_hosts") or []
         packs_raw = raw.get("packs") or []
+        strategies_raw = raw.get("strategies") or []
+        if not isinstance(strategies_raw, list):
+            raise ValueError("'strategies' must be a list")
+        unknown = [str(x) for x in strategies_raw if str(x) not in DEEP_STRATEGIES]
+        if unknown:
+            raise ValueError(f"unknown strategies {unknown}; known: {', '.join(DEEP_STRATEGIES)}")
         if not isinstance(goals_raw, list):
             raise ValueError("'goals' must be a list")
         if not isinstance(seeds_raw, list):
@@ -113,6 +122,7 @@ class DeepConfigLoader:
             packs=[str(p) for p in packs_raw],
             detector=detector,
             judge=judge,
+            strategies=[str(x) for x in strategies_raw],
         )
 
 

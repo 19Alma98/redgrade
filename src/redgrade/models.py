@@ -142,6 +142,8 @@ class Attack(BaseModel):
     level: int | None = None
     technique: str = ""
     mutations: tuple[str, ...] = ()
+    # Set on derived (L4) attacks: the mutation kind that produced this variant from its seed.
+    mutation: str = ""
     mutate_scope: MutateScope = MUTATE_SCOPE_ALL
     description: str = ""
 

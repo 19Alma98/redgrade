@@ -149,9 +149,29 @@ DEFAULT_MUTATIONS: Final[tuple[str, ...]] = (
     "bidi",
     "split",
 )
-MutateScope = Literal["prompt", "document", "all"]
+# Presets usable in an attack's ``mutations`` list ("default" and "all" are resolved in code;
+# ``bon`` / ``bon:N`` adds N seeded Best-of-N variants).
+MUTATION_PRESETS: Final[dict[str, tuple[str, ...]]] = {
+    "encoding": ("b64", "hex", "rot13", "morse", "reverse", "unicode_tags", "emoji_smuggle"),
+    "obfuscation": ("leetspeak", "homoglyph", "zw", "bidi", "split"),
+    "framing": (
+        "policy_puppetry",
+        "refusal_suppression",
+        "prefix_injection",
+        "code_wrap",
+        "many_shot",
+    ),
+}
+DEFAULT_BON_VARIANTS: Final = 5
+# Which text an L4 mutation rewrites. ``all`` = prompt + documents/attachments + forged history +
+# tool descriptions; ``fixtures`` (attacker pages served by the OOB collector) is opt-in only,
+# because wrapping a whole HTML/JSON body changes its format.
+MutateScope = Literal["prompt", "document", "history", "tools", "fixtures", "all"]
 MUTATE_SCOPE_PROMPT: Final[Literal["prompt"]] = "prompt"
 MUTATE_SCOPE_DOCUMENT: Final[Literal["document"]] = "document"
+MUTATE_SCOPE_HISTORY: Final[Literal["history"]] = "history"
+MUTATE_SCOPE_TOOLS: Final[Literal["tools"]] = "tools"
+MUTATE_SCOPE_FIXTURES: Final[Literal["fixtures"]] = "fixtures"
 MUTATE_SCOPE_ALL: Final[Literal["all"]] = "all"
 
 # --- pipelines / deep defaults --------------------------------------------------------------
@@ -173,6 +193,17 @@ DEFAULT_ATTACKER_API_BASE: Final = "http://127.0.0.1:11434"
 STRATEGY_PAIR: Final = "pair"
 STRATEGY_CRESCENDO: Final = "crescendo"
 STRATEGY_TAP: Final = "tap"
+STRATEGY_GOAT: Final = "goat"
+STRATEGY_ECHO_CHAMBER: Final = "echo_chamber"
+STRATEGY_BEST_OF_N: Final = "best_of_n"
+DEEP_STRATEGIES: Final[tuple[str, ...]] = (
+    STRATEGY_PAIR,
+    STRATEGY_CRESCENDO,
+    STRATEGY_TAP,
+    STRATEGY_GOAT,
+    STRATEGY_ECHO_CHAMBER,
+    STRATEGY_BEST_OF_N,
+)
 
 # --- report ---------------------------------------------------------------------------------
 

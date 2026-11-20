@@ -45,7 +45,8 @@ def _pack(tmp_path: Path, body: str) -> Path:
 
 def test_builtin_pack_loads_with_history_and_requires_history():
     attacks = load_attacks(families=["history_injection"])
-    assert len(attacks) == 9
+    assert len([a for a in attacks if not a.mutation]) == 9
+    assert {a.id for a in attacks if a.mutation} == {"HI-003~b64", "HI-003~policy_puppetry"}
     assert all(a.history and a.requires_history for a in attacks)
     hi3 = _hi("HI-003")
     assert [t.role for t in hi3.history] == ["user", "assistant", "tool"]

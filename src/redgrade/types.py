@@ -66,6 +66,7 @@ class AttackSummary(TypedDict):
     valid: int
     successes: int
     flaky: bool
+    mutation: str | None
 
 
 class CheckDict(TypedDict):
@@ -96,6 +97,7 @@ class ReportDictRequired(TypedDict):
 
 class ReportDict(ReportDictRequired, total=False):
     security_level: dict[str, JsonValue]
+    evasion: dict[str, dict[str, float | int | None]]
     deep_meta: dict[str, JsonValue]
     baseline: dict[str, JsonValue]
     scorecard: dict[str, JsonValue]

@@ -1,8 +1,18 @@
 from collections.abc import Callable
 from typing import Protocol
 
+from redgrade.constants import (
+    DEEP_STRATEGIES,
+    STRATEGY_BEST_OF_N,
+    STRATEGY_CRESCENDO,
+    STRATEGY_ECHO_CHAMBER,
+    STRATEGY_GOAT,
+    STRATEGY_PAIR,
+    STRATEGY_TAP,
+)
 from redgrade.deep.attacker import GoalRun, GoalSpec, PairLiteAttacker
-from redgrade.deep.crescendo import CrescendoAttacker
+from redgrade.deep.best_of_n import BestOfNAttacker
+from redgrade.deep.conversational import CrescendoAttacker, EchoChamberAttacker, GoatAttacker
 from redgrade.deep.errors import DeepError
 from redgrade.deep.tap import TapAttacker
 from redgrade.targets import Target
@@ -32,10 +42,17 @@ def get_strategy(
     max_rounds: int,
     judge_chat: Callable[[list[dict[str, str]]], str] | None = None,
 ) -> AdaptiveStrategy:
-    if name == "pair":
+    if name == STRATEGY_PAIR:
         return _PairStrategy(chat, max_rounds=max_rounds, judge_chat=judge_chat)
-    if name == "crescendo":
+    if name == STRATEGY_CRESCENDO:
         return CrescendoAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
-    if name == "tap":
+    if name == STRATEGY_TAP:
         return TapAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
-    raise DeepError(f"unknown strategy: {name!r}")
+    if name == STRATEGY_GOAT:
+        return GoatAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
+    if name == STRATEGY_ECHO_CHAMBER:
+        return EchoChamberAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
+    if name == STRATEGY_BEST_OF_N:
+        return BestOfNAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
+    known = ", ".join(DEEP_STRATEGIES)
+    raise DeepError(f"unknown strategy: {name!r} (known: {known})")

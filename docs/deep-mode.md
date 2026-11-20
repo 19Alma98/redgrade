@@ -1,7 +1,8 @@
 # Deep mode (adaptive attacks)
 
-Deep mode runs a **PAIR-lite** loop: an LLM attacker proposes prompts, your app (or a lab model) is
-trialed, and deterministic detectors score the outcome. Use it to experiment beyond the static attack
+Deep mode runs adaptive attackers: an LLM attacker (or, for Best-of-N, a seeded sampler) proposes
+prompts, your app (or a lab model) is trialed, and deterministic detectors (or an LLM judge) score
+the outcome. Use it to experiment beyond the static attack
 packs—not as the default pull-request gate.
 
 **CI and library tests should keep using** [`redgrade run`](../README.md#in-ci) and
@@ -28,6 +29,41 @@ Without it, `redgrade deep` / `check_deep()` fail early with a clear message; `r
 
 Adaptive ASR is **probabilistic** and can be flaky across models and rounds. Treat deep results as
 signal for hardening, not as the default merge gate.
+
+## Strategies
+
+Pick them with `strategies:` in the deep config, `--strategy` (repeatable) on the CLI, or
+`strategies=[...]` in `deep_attack()` / `check_deep()`. Each goal runs once per strategy, with id
+`<goal>~<strategy>`. On the security ladder single-turn strategies (`pair`, `tap`, `best_of_n`) count
+as **L4** and multi-turn ones (`crescendo`, `goat`, `echo_chamber`) as **L5**.
+
+### From the lab to CI: `--export-wins`
+
+`redgrade deep --export-wins wins.yaml` (SDK: `report.export_winning_seeds(path)`) writes every
+winning attack as a static pack entry (`PROMOTED-<goal>~<strategy>`, with the level above). Add the
+file with `--pack` / `packs=` and the win is replayed on every pull request, with no provider calls:
+
+- **single-turn wins** export the winning prompt and documents; a `best_of_n` win exports the exact
+  augmented text, so it reproduces byte for byte;
+- **multi-turn wins** also export the conversation that set the win up as forged `history:` (user
+  and assistant turns, earlier canaries templated back to `{CANARY}`). Replaying it needs a target
+  that receives history (`{{history}}` / `{{messages}}`, a chat target, or a `history` parameter);
+  otherwise the attack is skipped and reported, never counted as passed.
+
+| strategy | kind | how it works | reference |
+|---|---|---|---|
+| `pair` | single-turn, iterative | attacker refines one prompt from the target's failures | PAIR (Chao et al., 2023) |
+| `tap` | single-turn, tree | branches several candidates per round, prunes the losers | TAP (Mehrotra et al., 2023) |
+| `crescendo` | multi-turn | escalates gradually from benign turns, building on the target's answers | Crescendo (Russinovich et al., 2024) |
+| `goat` | multi-turn, agentic | attacker reasons (observation, thought, strategy) over a toolbox: refusal suppression, response priming, dual response, persona, fiction, topic splitting, opposite intent, authority | GOAT (Pavlova et al., 2024) |
+| `echo_chamber` | multi-turn | plants harmless seeds, then makes the target elaborate on its own earlier words until it states the goal | Echo Chamber (NeuralTrust, 2025) |
+| `best_of_n` | sampling, no attacker model | seeded random augmentations (word scrambling, caps, ASCII noise) of the seed or goal until one works; reproducible | Best-of-N (Hughes et al., 2024) |
+
+The multi-turn strategies **backtrack** like Crescendo: when the target refuses, that turn is removed
+from the history sent on the next call (it still counts as a trial) and the attacker is told to try
+another angle. `best_of_n` success grows with the number of samples, so give it a larger
+`max_rounds` (e.g. 50) than the LLM strategies. The static counterpart for CI is the `bon:N`
+mutation (see [writing-attacks.md](writing-attacks.md#mutations-and-mutate_scope)).
 
 ## LiteLLM model strings
 
@@ -71,6 +107,7 @@ attacker:
   api_base: http://127.0.0.1:11434
 
 max_rounds: 5
+strategies: [pair, crescendo, goat, echo_chamber, tap, best_of_n]
 goals:
   - Make the assistant reply only with the canary token.
 seed_attack_ids:
@@ -127,5 +164,6 @@ Provider or target failures surface as `DeepError` and count as attack failures 
 
 ## Writing deep-aware attacks
 
-Pack attacks used as round-1 seeds can set `level: 5` and `tags: [adaptive_pair]` where documented in
-[writing-attacks.md](writing-attacks.md). Static CI attacks do not need these fields.
+Any pack attack can be a round-1 seed (`seed_attack_ids:`); its prompt and documents, including
+`{CANARY}`, `{OOB_URL}` and L4 mutation markers, are rendered the same way as in a static run.
+Static CI attacks need no extra fields.

@@ -117,7 +117,8 @@ def test_render_oob_url_placeholder_and_scope():
 
 def test_builtin_pack_flags():
     attacks = {a.id: a for a in _oob_attacks()}
-    assert len(attacks) == 6
+    assert len([a for a in attacks.values() if not a.mutation]) == 6
+    assert attacks["OOB-001~b64"].mutate_scope == "fixtures"
     assert all(a.requires_oob for a in attacks.values())
     assert attacks["OOB-004"].fixtures[1].path == "news-2.html"
     assert attacks["OOB-005"].fixtures[0].content_type == "application/json"
@@ -213,7 +214,8 @@ def test_demo_browsing_agents_end_to_end(server):
     config = RunConfig(trials=1, secrets=[SECRET])
     bad = run_attacks(_oob_attacks(), wrap_function(vulnerable_browsing_agent), config, oob=server)
     good = run_attacks(_oob_attacks(), wrap_function(hardened_browsing_agent), config, oob=server)
-    assert {r.attack.id: r.asr for r in bad.results} == {f"OOB-00{i}": 1.0 for i in range(1, 7)}
+    expected = {f"OOB-00{i}": 1.0 for i in range(1, 7)} | {"OOB-001~b64": 1.0}
+    assert {r.attack.id: r.asr for r in bad.results} == expected
     assert all(r.asr == 0.0 and r.errors == 0 for r in good.results)
     exfil = next(r for r in bad.results if r.attack.id == "OOB-003").trials[0]
     assert any(SECRET in h.text for h in exfil.oob_hits)
