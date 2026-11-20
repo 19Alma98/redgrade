@@ -273,6 +273,64 @@ assert report.passed, report.summary()
 | `ci.agent` | goal hijack, MCP, handoff / inter-agent, access control | when the target exposes tool calls |
 | `ci.oob` | attacker web content, out-of-band exfiltration | with `oob=True` |
 
+## In your test suite (pytest)
+
+Installing redgrade adds a pytest plugin: every attack becomes its own test, so `-k`, `--lf`,
+JUnit and IDE runners work per attack.
+
+```python
+# conftest.py
+@pytest.fixture(scope="session")
+def redgrade_target():
+    return HttpTarget("http://localhost:8000/chat", body={"message": "{{prompt}}"})
+
+
+# test_security.py
+from redgrade.pytest_plugin import attacks
+
+
+@attacks(families=["prompt_injection_direct", "prompt_injection_indirect", "task_utility"])
+def test_attack(redgrade, redgrade_attack):
+    redgrade.assert_resisted(redgrade_attack)  # utility probes: asserts the app answered
+
+
+@pytest.mark.redgrade(max_asr=0.2, trials=5)  # per-test tolerance and settings
+@attacks(families=["multi_turn"], levels=[5])
+def test_long_conversations(redgrade, redgrade_attack):
+    redgrade.assert_resisted(redgrade_attack)
+```
+
+```bash
+pytest --redgrade-trials 3 --redgrade-config redgrade.yaml --redgrade-report redgrade.md
+```
+
+A failing test shows the attack, the verdict and an output snippet. A target error fails the test;
+a missing surface skips it with the reason. With `--redgrade-config`, the policy is also evaluated
+on everything the session ran and a failing gate fails the session (`--redgrade-json`, `--html`,
+`--sarif`, `--baseline` too).
+
+## Measure a defense (A/B)
+
+A guardrail is worth what it blocks minus what it breaks. Run the same attacks without and with it:
+
+```bash
+redgrade compare -c redgrade.yaml -d redgrade.guarded.yaml --max-utility-drop 0.05
+```
+
+```python
+from redgrade import GuardedTarget, compare_defense
+
+guarded = GuardedTarget(app, input_guard=lambda req: my_classifier(req.text) > 0.5)
+result = compare_defense(app, guarded, families=["prompt_injection_direct", "task_utility"])
+print(result.to_markdown())
+```
+
+The comparison shows ASR and utility before and after with 95% ranges (and whether the change is
+significant with these trials), per family and per level, latency added, the attacks the defense
+blocked, those still working, those that work *only* with the defense, and the benign probes it
+broke (over-refusal). Exit code 1 when the defense does not lower ASR, introduces a regression, or
+costs more utility than allowed.
+
 ## What it covers today
 
 Redgrade covers attacks that arrive from outside the app. Each attack carries its OWASP category,
@@ -322,6 +380,17 @@ Detectors are deterministic in CI, so the same output always gives the same verd
   data in the reply, or an admin-only function called (see `identity:`).
 - **Out-of-band callback** (`oob_callback`): the attacker server received a request from the app
   for this trial (optionally a POST, or one carrying a configured secret).
+- **Rubric** (`rubric`): regexes that recognize compliance for goals with no canary, usually
+  *distilled* in the lab from LLM-judge verdicts and validated against them (`redgrade distill`).
+- **Classifier** (`classifier`): a local model on CPU (refusal, toxicity...), no provider call.
+- **Refusal heuristic** (`refusal`): "the app did not refuse". Heuristic verdicts are
+  **advisory**: reported, never gated.
+- **Your own** (`register_detector`), loaded from `plugins:` or an installed package.
+
+Every detector has a confidence (`evidence` > `rubric` > `heuristic`). Goals only an LLM can judge
+are handled without a judge in CI by distilling them in the lab; a judge can still be passed
+explicitly (`check(..., judge=...)`, verdicts cached by output hash). See
+[docs/ci-verdicts.md](docs/ci-verdicts.md).
 
 **ASR vs utility:** attack success rate (ASR) is lower-is-better and excludes the `task_utility`
 family. Utility probes are benign questions; a high utility rate means the app still answers
@@ -421,6 +490,14 @@ regression. Errors are never "improvements".
 grade. Attacks are weighted by severity and level; one successful critical attack caps the grade at D
 and a high one at C, whatever the average says. With few trials the range is wide and the report says
 so. Gate it with `min_security_score` and `min_family_score: {rag_poisoning: 80}`.
+
+**Compliance view.** Every report maps the run to the controls of OWASP Top 10 for LLM (2025),
+OWASP Top 10 for Agentic Applications (2026), MITRE ATLAS, NIST AI RMF (MEASURE) and the EU AI Act
+(Art. 15, Art. 55): each control is *resisted*, *vulnerable* (with the attacks that broke it),
+*not run*, *not covered* or *out of scope*. SARIF rules carry the control ids as tags. Gate it with
+`require_compliance: [owasp_llm_2025]` (every control redgrade can test must have run); see the
+mapping with `redgrade compliance`; add controls to a single attack with `compliance:` in a pack.
+It is test evidence, not a certification.
 
 **Report formats** (static, no provider calls):
 

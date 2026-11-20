@@ -3,6 +3,7 @@
 from redgrade.baseline import bad_count
 from redgrade.constants import FAMILY_TASK_UTILITY
 from redgrade.models import AttackResult, RunResult
+from redgrade.utility import gated_results
 
 SECURITY_SEVERITY = {"critical": 9.5, "high": 8.0, "medium": 5.5, "low": 3.0}
 SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low": "note"}
@@ -10,7 +11,7 @@ SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low":
 
 def findings(run: RunResult) -> list[AttackResult]:
     """Executed results where something went wrong: an attack worked or a benign probe failed."""
-    return [r for r in run.executed if bad_count(r) > 0]
+    return [r for r in gated_results(run) if bad_count(r) > 0]
 
 
 def is_utility(result: AttackResult) -> bool:

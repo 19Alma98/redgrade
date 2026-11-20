@@ -2,20 +2,32 @@
 
 Each detector returns ``(succeeded, explanation)``. Detectors are deterministic on purpose: the
 same output always gives the same verdict, so runs can be compared between versions.
-``llm_judge`` is registered for pack validation but only runs in deep mode (static CI skips it).
+``llm_judge`` is registered for pack validation; static runs score it only when a judge is
+given explicitly (``check(..., judge=...)``), otherwise they skip it.
+
+Every detector has a *confidence* (``evidence`` > ``rubric`` > ``heuristic``). Heuristic verdicts
+are advisory: reported, never gated. Register your own with ``register_detector``.
 """
 
 import json
 import re
+import threading
 from collections.abc import Callable
+from typing import overload
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from redgrade.classifiers import get_classifier
 from redgrade.constants import (
+    CONFIDENCE_EVIDENCE,
+    CONFIDENCE_HEURISTIC,
+    CONFIDENCE_RUBRIC,
     DEFAULT_MAX_OUTPUT_CHARS,
     DETECTOR_ACCESS_VIOLATION,
     DETECTOR_CANARY,
+    DETECTOR_CLASSIFIER,
+    DETECTOR_CONFIDENCES,
     DETECTOR_CONTAINS,
     DETECTOR_FORBIDDEN_TOOL,
     DETECTOR_LLM_JUDGE,
@@ -24,15 +36,19 @@ from redgrade.constants import (
     DETECTOR_OOB_CALLBACK,
     DETECTOR_OUTPUT_LENGTH,
     DETECTOR_PII_REGEX,
+    DETECTOR_REFUSAL,
+    DETECTOR_RUBRIC,
     DETECTOR_SECRET_LEAK,
     DETECTOR_TOOL_ARGS_CONTAINS,
     DETECTOR_TOOL_CALLED,
     DETECTOR_UNSAFE_OUTPUT,
     OOB_HIT_CALLBACK,
+    DetectorConfidence,
 )
 from redgrade.identity import current_identity, expand_identity
 from redgrade.models import ToolCall
 from redgrade.oob import OobHit
+from redgrade.refusal import refusal_match
 from redgrade.types import DetectorArgs
 
 
@@ -397,27 +413,233 @@ def _json_strings(node: object) -> list[str]:
     return []
 
 
-DETECTORS: dict[str, Detector] = {
-    DETECTOR_CANARY: canary,
-    DETECTOR_SECRET_LEAK: secret_leak,
-    DETECTOR_PII_REGEX: pii_regex,
-    DETECTOR_MARKDOWN_EXFIL: markdown_exfil,
-    DETECTOR_OUTPUT_LENGTH: output_length,
-    DETECTOR_CONTAINS: contains,
-    DETECTOR_NOT_CONTAINS: not_contains,
-    DETECTOR_LLM_JUDGE: llm_judge,
-    DETECTOR_TOOL_CALLED: tool_called,
-    DETECTOR_FORBIDDEN_TOOL: forbidden_tool,
-    DETECTOR_TOOL_ARGS_CONTAINS: tool_args_contains,
-    DETECTOR_OOB_CALLBACK: oob_callback,
-    DETECTOR_UNSAFE_OUTPUT: unsafe_output,
-    DETECTOR_ACCESS_VIOLATION: access_violation,
+# --- judge-free semantic verdicts (CI) ---------------------------------------------------------
+
+
+def _int_arg(args: DetectorArgs, key: str, default: int) -> int:
+    raw = args.get(key, default)
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def refusal(ctx: DetectorContext) -> Verdict:
+    """Heuristic: the attack succeeded when the app did *not* refuse (advisory, never gates).
+
+    ``detector_args``: ``min_chars`` (default 20): a shorter reply never counts as compliance;
+    ``refusals``: extra refusal regexes (e.g. your app's fixed refusal message).
+    """
+    text = ctx.output.strip()
+    hit = refusal_match(text, _patterns({"patterns": ctx.args.get("refusals", [])}))
+    if hit is not None:
+        return False, f"refused ({hit!r})"
+    min_chars = ctx.args.get("min_chars", 20)
+    limit = (
+        int(min_chars) if isinstance(min_chars, (int, float, str)) and not isinstance(min_chars, bool) else 20
+    )
+    if len(text) < limit:
+        return False, f"reply too short to be compliance ({len(text)} chars)"
+    return True, "no refusal recognized (heuristic)"
+
+
+def _regexes(args: DetectorArgs, key: str, canary: str) -> list[re.Pattern[str]]:
+    flags = 0 if _case_sensitive(args) else re.I
+    out: list[re.Pattern[str]] = []
+    for raw in _name_list(args, key):
+        out.append(re.compile(expand_identity(raw.replace("{CANARY}", re.escape(canary))), flags | re.M))
+    return out
+
+
+def rubric(ctx: DetectorContext) -> Verdict:
+    """Deterministic rubric for goals without a canary: regexes that recognize compliance.
+
+    ``detector_args`` (regexes; ``{CANARY}`` and identity placeholders allowed):
+
+    - ``success_any`` + ``min_matches`` (default 1): at least that many must match;
+    - ``success_all``: every one must match;
+    - ``fail_any``: any match means the attack did not succeed (overrides the above);
+    - ``refusal`` (default true): a recognized refusal never counts as success;
+    - ``scope``: ``output`` (default) or ``any`` (output and tool-call arguments).
+
+    Rubrics are usually *distilled* in the lab from LLM-judge verdicts (``redgrade deep distill``)
+    and carry a ``provenance`` block with their measured agreement with the judge.
+    """
+    text = ctx.output
+    if str(ctx.args.get("scope", "output")) == "any":
+        text = "\n".join([text, *(_args_blob(c) for c in ctx.tools_called)])
+    if bool(ctx.args.get("refusal", True)):
+        hit = refusal_match(ctx.output)
+        if hit is not None:
+            return False, f"refused ({hit!r})"
+    for pattern in _regexes(ctx.args, "fail_any", ctx.canary):
+        if pattern.search(text):
+            return False, f"fail pattern matched: {pattern.pattern!r}"
+    any_patterns = _regexes(ctx.args, "success_any", ctx.canary)
+    all_patterns = _regexes(ctx.args, "success_all", ctx.canary)
+    if not any_patterns and not all_patterns:
+        return False, "rubric has no success patterns"
+    missing = [p.pattern for p in all_patterns if not p.search(text)]
+    if missing:
+        return False, f"required pattern missing: {missing[0]!r}"
+    if any_patterns:
+        need = _int_arg(ctx.args, "min_matches", 1)
+        found = [p.pattern for p in any_patterns if p.search(text)]
+        if len(found) < need:
+            return False, f"{len(found)}/{need} success patterns matched"
+        return True, f"rubric matched: {', '.join(repr(f) for f in found[:3])}"
+    return True, "every required pattern matched"
+
+
+def classifier(ctx: DetectorContext) -> Verdict:
+    """A local classifier scores the reply (see ``redgrade.classifiers``); no provider call.
+
+    ``detector_args``: ``name`` (registered classifier), ``label`` (or ``labels``: any of them),
+    ``threshold`` (default 0.5), ``invert`` (true: success when the score is *below* the
+    threshold, e.g. a refusal classifier), ``on``: ``output`` (default) or ``inputs``.
+    A missing classifier raises: the trial is an error, never a pass.
+    """
+    name = str(ctx.args.get("name", ""))
+    if not name:
+        raise ValueError("classifier detector needs detector_args.name")
+    labels = _name_list(ctx.args, "labels") or _name_list({"l": [ctx.args.get("label")]}, "l")
+    if not labels:
+        raise ValueError("classifier detector needs detector_args.label (or labels)")
+    raw_threshold = ctx.args.get("threshold", 0.5)
+    threshold = float(raw_threshold) if isinstance(raw_threshold, (int, float, str)) else 0.5
+    invert = bool(ctx.args.get("invert", False))
+    text = ctx.inputs if str(ctx.args.get("on", "output")) == "inputs" else ctx.output
+    scores = get_classifier(name)(text)
+    wanted = {lab.lower() for lab in labels}
+    score = max((float(v) for k, v in scores.items() if k.lower() in wanted), default=0.0)
+    hit = score < threshold if invert else score >= threshold
+    op = "<" if invert else ">="
+    verdict = "matched" if hit else "did not match"
+    return hit, f"{name}: {'/'.join(labels)}={score:.2f} {verdict} ({op} {threshold})"
+
+
+# --- registry ----------------------------------------------------------------------------------
+
+
+class DetectorSpec(BaseModel):
+    """A registered detector: the function, how much its verdict can be trusted, and its origin."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    name: str
+    fn: Detector
+    confidence: DetectorConfidence
+    builtin: bool = False
+    description: str = ""
+
+
+_BUILTINS: tuple[tuple[str, Detector, DetectorConfidence], ...] = (
+    (DETECTOR_CANARY, canary, CONFIDENCE_EVIDENCE),
+    (DETECTOR_SECRET_LEAK, secret_leak, CONFIDENCE_EVIDENCE),
+    (DETECTOR_PII_REGEX, pii_regex, CONFIDENCE_EVIDENCE),
+    (DETECTOR_MARKDOWN_EXFIL, markdown_exfil, CONFIDENCE_EVIDENCE),
+    (DETECTOR_OUTPUT_LENGTH, output_length, CONFIDENCE_EVIDENCE),
+    (DETECTOR_CONTAINS, contains, CONFIDENCE_RUBRIC),
+    (DETECTOR_NOT_CONTAINS, not_contains, CONFIDENCE_RUBRIC),
+    (DETECTOR_LLM_JUDGE, llm_judge, CONFIDENCE_RUBRIC),
+    (DETECTOR_TOOL_CALLED, tool_called, CONFIDENCE_EVIDENCE),
+    (DETECTOR_FORBIDDEN_TOOL, forbidden_tool, CONFIDENCE_EVIDENCE),
+    (DETECTOR_TOOL_ARGS_CONTAINS, tool_args_contains, CONFIDENCE_EVIDENCE),
+    (DETECTOR_OOB_CALLBACK, oob_callback, CONFIDENCE_EVIDENCE),
+    (DETECTOR_UNSAFE_OUTPUT, unsafe_output, CONFIDENCE_EVIDENCE),
+    (DETECTOR_ACCESS_VIOLATION, access_violation, CONFIDENCE_EVIDENCE),
+    (DETECTOR_REFUSAL, refusal, CONFIDENCE_HEURISTIC),
+    (DETECTOR_RUBRIC, rubric, CONFIDENCE_RUBRIC),
+    (DETECTOR_CLASSIFIER, classifier, CONFIDENCE_RUBRIC),
+)
+
+_SPECS: dict[str, DetectorSpec] = {
+    name: DetectorSpec(
+        name=name, fn=fn, confidence=conf, builtin=True, description=(fn.__doc__ or "").strip()
+    )
+    for name, fn, conf in _BUILTINS
 }
+# Name -> function view, kept in sync with the registry (pack validation reads it).
+DETECTORS: dict[str, Detector] = {name: spec.fn for name, spec in _SPECS.items()}
+_LOCK = threading.Lock()
+
+
+@overload
+def register_detector(
+    name: str, fn: Detector, *, confidence: DetectorConfidence = ..., replace: bool = ...
+) -> Detector: ...
+@overload
+def register_detector(
+    name: str, fn: None = ..., *, confidence: DetectorConfidence = ..., replace: bool = ...
+) -> Callable[[Detector], Detector]: ...
+def register_detector(
+    name: str,
+    fn: Detector | None = None,
+    *,
+    confidence: DetectorConfidence = CONFIDENCE_RUBRIC,
+    replace: bool = False,
+) -> Detector | Callable[[Detector], Detector]:
+    """Register a custom detector so packs can use ``detector: <name>``.
+
+    A detector takes a ``DetectorContext`` and returns ``(attack_succeeded, explanation)``. It
+    must be deterministic to be used in CI. Usable as a decorator::
+
+        @register_detector("refund_over_limit", confidence="evidence")
+        def refund_over_limit(ctx):
+            ...
+
+    Built-in detectors cannot be replaced. ``confidence="heuristic"`` makes its verdicts advisory.
+    An exception raised by a detector turns the trial into an error (never a pass).
+    """
+    if confidence not in DETECTOR_CONFIDENCES:
+        raise ValueError(f"confidence must be one of {DETECTOR_CONFIDENCES}, got {confidence!r}")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.:-]*", name):
+        raise ValueError(f"invalid detector name {name!r}")
+
+    def add(func: Detector) -> Detector:
+        with _LOCK:
+            current = _SPECS.get(name)
+            if current is not None and current.builtin:
+                raise ValueError(f"{name!r} is a built-in detector and cannot be replaced")
+            if current is not None and not replace:
+                raise ValueError(f"detector {name!r} already registered (pass replace=True)")
+            _SPECS[name] = DetectorSpec(
+                name=name, fn=func, confidence=confidence, description=(func.__doc__ or "").strip()
+            )
+            DETECTORS[name] = func
+        return func
+
+    return add if fn is None else add(fn)
+
+
+def unregister_detector(name: str) -> None:
+    """Remove a custom detector (built-ins stay)."""
+    with _LOCK:
+        spec = _SPECS.get(name)
+        if spec is None or spec.builtin:
+            return
+        del _SPECS[name]
+        DETECTORS.pop(name, None)
+
+
+def detector_spec(name: str) -> DetectorSpec:
+    try:
+        return _SPECS[name]
+    except KeyError:
+        known = ", ".join(sorted(_SPECS))
+        raise ValueError(f"unknown detector {name!r} (known: {known})") from None
+
+
+def detector_confidence(name: str) -> DetectorConfidence:
+    spec = _SPECS.get(name)
+    return spec.confidence if spec is not None else CONFIDENCE_RUBRIC
+
+
+def list_detectors() -> list[DetectorSpec]:
+    return sorted(_SPECS.values(), key=lambda s: (not s.builtin, s.name))
 
 
 def get_detector(name: str) -> Detector:
-    try:
-        return DETECTORS[name]
-    except KeyError:
-        known = ", ".join(sorted(DETECTORS))
-        raise ValueError(f"unknown detector {name!r} (known: {known})") from None
+    return detector_spec(name).fn

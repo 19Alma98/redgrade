@@ -60,6 +60,11 @@ Applications (2026).
 - [x] Per-attack baseline compare: "new successes vs `main`" as a gate (`redgrade baseline update`, `policy.baseline`)
 - [x] HTML, SARIF and JUnit reports; report JSON `schema_version: 2`
 - [x] Scorecard: per-family score, 95% ranges, letter grade, `min_security_score` / `min_family_score` gates
+- [x] Public detector registry (`register_detector`, confidence levels) and plugins (`plugins:`, entry point `redgrade.plugins`)
+- [x] Judge-free CI verdicts: `rubric`, local `classifier`, advisory `refusal` heuristic; `redgrade distill` freezes judge verdicts into validated rubrics; opt-in CI judge with a verdict cache
+- [x] Compliance view: OWASP LLM 2025, OWASP Agentic 2026, MITRE ATLAS, NIST AI RMF, EU AI Act; SARIF tags; `require_compliance` gate
+- [x] pytest plugin: one test per attack, `assert_resisted`, session reports and policy gate
+- [x] Defense A/B evaluation: `compare_defense`, `GuardedTarget`, `redgrade compare` (ASR / utility / latency deltas with significance)
 - [ ] Verify the OpenGrade adapter end to end against a running OpenGrade server
 - [ ] Vulnerable reference apps for each family (the demo app is a simulation, not a real model)
 

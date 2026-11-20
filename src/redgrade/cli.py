@@ -1,4 +1,5 @@
-"""Command line: ``redgrade init | list | run | check | baseline | export-dataset | deep``.
+"""Command line: ``redgrade init | list | run | check | baseline | compare | compliance | deep |
+generate | translate | distill | import-dataset | export-dataset``.
 
 Exit codes: 0 gate passed, 1 gate failed, 2 usage or configuration error.
 """
@@ -12,7 +13,7 @@ from pathlib import Path
 
 from redgrade import __version__
 from redgrade.baseline import DEFAULT_BASELINE_PATH, BaselineError
-from redgrade.config import EXAMPLE, Config, ConfigError, load_config
+from redgrade.config import EXAMPLE, Config, ConfigError, JudgeConfig, load_config
 from redgrade.constants import (
     DEEP_STRATEGIES,
     DEFAULT_CONFIG_PATH,
@@ -20,11 +21,15 @@ from redgrade.constants import (
     FAMILY_STATUS_AVAILABLE,
     FAMILY_TASK_UTILITY,
 )
+from redgrade.detectors import list_detectors
+from redgrade.extensions import prepare_extensions
 from redgrade.families import FAMILIES
-from redgrade.loader import PackError, load_attacks
+from redgrade.judge import JudgeError
+from redgrade.loader import PackError, load_attacks, load_pack_file
 from redgrade.models import AttackResult
 from redgrade.mutations import available_mutations
 from redgrade.oob import OobServer
+from redgrade.plugins import PluginError, load_plugins
 from redgrade.render import render_attack, render_history, render_turns
 from redgrade.runner import new_canary
 from redgrade.sdk import AttackError, run_pipeline
@@ -48,6 +53,7 @@ def _truncate(text: str, max_len: int) -> str:
 
 def _cmd_list(args: argparse.Namespace) -> int:
     # Discoverability: list includes opt-in builtins unless --family narrows the set.
+    load_plugins(args.plugin)
     attacks = load_attacks(
         extra_packs=args.pack,
         families=args.family or None,
@@ -72,6 +78,10 @@ def _cmd_list(args: argparse.Namespace) -> int:
         print(f"  {name:<12}{', '.join(kinds)}")
     print(f"  {'default':<12}{', '.join(DEFAULT_MUTATIONS)}")
     print(f"\ndeep strategies (redgrade deep --strategy): {', '.join(DEEP_STRATEGIES)}")
+    print("\ndetectors (confidence: evidence > rubric > heuristic; heuristic = advisory, not gated):")
+    for spec in list_detectors():
+        origin = "" if spec.builtin else " (plugin)"
+        print(f"  {spec.name:<20}{spec.confidence:<11}{origin}")
     return 0
 
 
@@ -107,10 +117,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.trials:
         config.run.trials = args.trials
     try:
+        judge = prepare_extensions(config)
         target = build_target(config.target)
         with _collector(config) as oob:
             report = run_pipeline(
                 target,
+                judge=judge,
                 policy=config.policy,
                 families=families or None,
                 packs=config.packs or None,
@@ -119,7 +131,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 baseline=args.baseline,
                 oob=oob,
             )
-    except AttackError as exc:
+    except (AttackError, PluginError, JudgeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
@@ -152,10 +164,12 @@ def _cmd_baseline_update(args: argparse.Namespace) -> int:
         config.run.trials = args.trials
     policy = config.policy.model_copy(update={"baseline": None})
     try:
+        judge = prepare_extensions(config)
         target = build_target(config.target)
         with _collector(config) as oob:
             report = run_pipeline(
                 target,
+                judge=judge,
                 policy=policy,
                 families=families or None,
                 packs=config.packs or None,
@@ -163,7 +177,7 @@ def _cmd_baseline_update(args: argparse.Namespace) -> int:
                 on_result=_progress,
                 oob=oob,
             )
-    except AttackError as exc:
+    except (AttackError, PluginError, JudgeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     err = next((c for c in report.checks if c.name == "error_rate"), None)
@@ -265,6 +279,114 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         print(f"{fam}: {len(items)} attack(s)", file=sys.stderr)
     print(f"wrote {n} attack(s) to {args.out}", file=sys.stderr)
     return 0 if n else 1
+
+
+def _cmd_distill(args: argparse.Namespace) -> int:
+    """Lab: turn llm_judge attacks into deterministic rubrics validated against the judge."""
+    from redgrade.deep.distill import DistillResult, distill_attacks, distilled_pack
+    from redgrade.deep.errors import DeepError
+    from redgrade.deep.generate import _default_chat
+    from redgrade.extensions import build_judge
+    from redgrade.packio import read_pack, write_pack
+
+    config = load_config(args.config)
+    try:
+        prepare_extensions(config.model_copy(update={"judge": None}))
+        if args.judge_model:
+            judge = build_judge(JudgeConfig(model=args.judge_model, api_base=args.judge_api_base))
+        else:
+            judge = build_judge(config.judge)
+        if judge is None:
+            print("distill needs a judge: --judge-model or `judge:` in redgrade.yaml", file=sys.stderr)
+            return 2
+        author = _default_chat(args.attacker_model, args.attacker_api_base)
+        raw = read_pack(args.pack)
+        attacks = load_pack_file(args.pack)
+        target = build_target(config.target)
+
+        def progress(res: DistillResult) -> None:
+            agree = "" if res.agreement is None else f" agreement {res.agreement:.2f}"
+            print(f"  [{res.status:<12}] {res.attack_id}{agree} - {res.message}", file=sys.stderr)
+
+        results = distill_attacks(
+            attacks,
+            target,
+            judge=judge.chat,
+            author=author,
+            trials=args.trials,
+            run_config=config.run,
+            on_result=progress,
+            synthesize=args.synthesize,
+            min_agreement=args.min_agreement,
+            min_precision=args.min_precision,
+        )
+    except (DeepError, JudgeError, PluginError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    pack, changed = distilled_pack(raw, results, judge_id=judge.judge_id)
+    out = args.out or args.pack
+    write_pack(out, pack, header="Distilled by `redgrade distill`: llm_judge -> rubric where validated.")
+    print(f"froze {changed}/{len(results)} judged attack(s) into rubrics; wrote {out}", file=sys.stderr)
+    return 0 if changed or not results else 1
+
+
+def _cmd_compare(args: argparse.Namespace) -> int:
+    """A/B: the same attacks against the app without and with a defense."""
+    from redgrade.defense import compare_defense
+
+    base = load_config(args.config)
+    defended = load_config(args.defended)
+    if args.trials:
+        base.run.trials = args.trials
+    try:
+        judge = prepare_extensions(base)
+        prepare_extensions(defended.model_copy(update={"judge": None}))
+        with _collector(base) as oob:
+            result = compare_defense(
+                build_target(base.target),
+                build_target(defended.target),
+                families=args.family or base.families or None,
+                packs=base.packs or None,
+                run_config=base.run,
+                oob=oob,
+                judge=judge,
+                baseline_label=Path(args.config).stem,
+                defended_label=Path(args.defended).stem,
+            )
+    except (PluginError, JudgeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    md = result.to_markdown()
+    print(md)
+    if args.report:
+        Path(args.report).write_text(md, encoding="utf-8")
+    if args.json:
+        Path(args.json).write_text(result.to_json(), encoding="utf-8")
+    return 0 if result.effective(max_utility_drop=args.max_utility_drop) else 1
+
+
+def _cmd_compliance(args: argparse.Namespace) -> int:
+    """Which framework controls redgrade's attack families map to (no run)."""
+    from redgrade.compliance import FAMILY_CONTROLS, FRAMEWORKS
+
+    selected = args.framework or list(FRAMEWORKS)
+    unknown = [f for f in selected if f not in FRAMEWORKS]
+    if unknown:
+        print(f"unknown framework(s): {', '.join(unknown)} (known: {', '.join(FRAMEWORKS)})", file=sys.stderr)
+        return 2
+    for fw_id in selected:
+        fw = FRAMEWORKS[fw_id]
+        print(f"\n{fw.name}  [{fw.id}]")
+        for control in fw.controls:
+            fams = sorted(f for f, m in FAMILY_CONTROLS.items() if control.id in m.get(fw_id, ()))
+            if not control.in_scope:
+                cover = "out of scope (inside threat: use dedicated tools)"
+            else:
+                cover = ", ".join(fams) if fams else "not covered"
+            print(f"  {control.id:<15}{control.name:<48}{cover}")
+        if fw.note:
+            print(f"  note: {fw.note}")
+    return 0
 
 
 def _cmd_translate(args: argparse.Namespace) -> int:
@@ -388,6 +510,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("list", help="list available attacks and families")
     p.add_argument("--family", action="append")
     p.add_argument("--pack", action="append", help="extra attack pack (YAML)")
+    p.add_argument("--plugin", action="append", help="plugin module that registers detectors")
     p.set_defaults(func=_cmd_list)
 
     p = sub.add_parser("run", help="attack the target and apply the gate")
@@ -475,6 +598,39 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--attacker-api-base", help="attacker API base URL")
     p.add_argument("--out", "-o", required=True, help="pack YAML to write")
     p.set_defaults(func=_cmd_generate)
+
+    p = sub.add_parser(
+        "distill",
+        help="lab: freeze llm_judge attacks into deterministic rubrics validated against the judge",
+    )
+    p.add_argument("pack", help="pack YAML with llm_judge attacks")
+    p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH, help="redgrade.yaml (target, judge)")
+    p.add_argument("--out", "-o", help="pack YAML to write (default: overwrite the input)")
+    p.add_argument("--trials", type=int, default=3, help="target outputs collected per attack")
+    p.add_argument("--synthesize", type=int, default=3, help="synthetic examples per side (0: none)")
+    p.add_argument("--min-agreement", type=float, default=0.9)
+    p.add_argument("--min-precision", type=float, default=0.9)
+    p.add_argument("--judge-model", help="LiteLLM model for the judge (default: `judge:` in config)")
+    p.add_argument("--judge-api-base")
+    p.add_argument("--attacker-model", help="LiteLLM model that writes the rubrics")
+    p.add_argument("--attacker-api-base")
+    p.set_defaults(func=_cmd_distill)
+
+    p = sub.add_parser("compare", help="A/B: measure a defense (same attacks, without vs with it)")
+    p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH, help="baseline app (redgrade.yaml)")
+    p.add_argument(
+        "--defended", "-d", required=True, help="config of the defended app (only its target is used)"
+    )
+    p.add_argument("--family", action="append", help="only this family (repeatable)")
+    p.add_argument("--trials", type=int, help="override run.trials")
+    p.add_argument("--max-utility-drop", type=float, default=0.0, help="tolerated utility loss (0..1)")
+    p.add_argument("--report", help="write the Markdown comparison to this file")
+    p.add_argument("--json", help="write the JSON comparison to this file")
+    p.set_defaults(func=_cmd_compare)
+
+    p = sub.add_parser("compliance", help="show which framework controls the attack families cover")
+    p.add_argument("--framework", action="append", help="owasp_llm_2025, owasp_asi_2026, mitre_atlas, ...")
+    p.set_defaults(func=_cmd_compliance)
 
     p = sub.add_parser("translate", help="lab: add translated (L4) variants of a pack's attacks")
     p.add_argument("pack", help="pack YAML to translate")

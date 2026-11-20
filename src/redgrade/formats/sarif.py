@@ -7,6 +7,7 @@ shows only *new* alerts on a pull request. Model output is left out unless asked
 import json
 
 from redgrade.baseline import BaselineComparison
+from redgrade.compliance import controls_for_attack
 from redgrade.formats._common import SARIF_LEVEL, SECURITY_SEVERITY, finding_message, findings
 from redgrade.models import RunResult
 
@@ -47,6 +48,7 @@ def to_sarif_dict(
                         "llm",
                         a.family,
                         *[o.strip() for o in a.owasp.split(",") if o.strip()],
+                        *[f"{fw}:{cid}" for fw, ids in controls_for_attack(a).items() for cid in ids],
                     ],
                     "level": a.level,
                 },

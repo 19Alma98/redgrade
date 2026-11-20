@@ -283,12 +283,21 @@ Optional pack field `tools:` is a JSON list injected via `{{tools}}` (poisoned M
 | `unsafe_output` | an executable construct carrying the canary passed through: `kinds` among `html`, `markdown_js`, `sql`, `shell`, `csv_formula`, `template`; `scope: output \| tools \| any`; escaped text and code blocks do not count | a `{CANARY}` inside the payload |
 | `access_violation` | another user's id in a tool call, `victim_data` in the reply, a privileged tool (`names`) or `arg_patterns` in tool args | `identity:`; tools surface or `victim_data` |
 | `oob_callback` | the out-of-band collector got a callback for this trial (`methods: [POST]`, `require: secret` or `patterns` narrow it) | collector (`oob`) |
-| `llm_judge` | deep mode only: an LLM scores whether the output achieved the goal | LiteLLM judge (see deep-mode.md) |
+| `rubric` | regexes recognize compliance: `success_any` (+ `min_matches`), `success_all`, `fail_any`; a recognized refusal never counts (`refusal: false` to disable). Usually distilled with `redgrade distill` | patterns (`{CANARY}` allowed) |
+| `classifier` | a local classifier's `label` score is >= `threshold` (or below, with `invert: true`) | `classifiers:` in the config or `register_classifier` |
+| `refusal` | the reply is not a recognized refusal (and has at least `min_chars`); **advisory**, never gated | none (`refusals:` adds your app's refusal text) |
+| `llm_judge` | an LLM scores whether the output achieved `detector_args.goal` (else description / title) | deep mode, or a judge passed to `check()` / `judge:` in the config |
 
 Patterns are matched case-insensitively unless `detector_args.case_sensitive: true`.
 
 CI detectors are deterministic on purpose: the same output always gives the same verdict, so two
-runs can be compared. Static `run` / `check` **skip** `llm_judge` attacks; use `redgrade deep`.
+runs can be compared. Static `run` / `check` **skip** `llm_judge` attacks unless a judge is given;
+the usual way to bring them to CI is `redgrade distill` (see [ci-verdicts.md](ci-verdicts.md)).
+
+Other per-attack keys: `advisory: true` reports the verdict without gating it (implied by
+heuristic detectors); `compliance: {mitre_atlas: [AML.T0054]}` adds framework controls on top of
+the family mapping (`redgrade compliance` lists them). Register your own detector with
+`redgrade.register_detector` and load it via `plugins:` in `redgrade.yaml`.
 
 ## Task utility probes
 

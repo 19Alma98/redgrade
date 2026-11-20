@@ -11,6 +11,7 @@ __all__ = [
     "LlmTarget",
     "check_deep",
     "deep_attack",
+    "distill_attacks",
     "generate_attacks",
     "summarize_scorecard",
     "translate_attacks",
@@ -31,6 +32,10 @@ def __getattr__(name: str) -> Callable[..., Any]:
         from redgrade.deep import generate
 
         return getattr(generate, name)  # type: ignore[no-any-return]
+    if name == "distill_attacks":
+        from redgrade.deep.distill import distill_attacks
+
+        return distill_attacks
     if name == "summarize_scorecard":
         from redgrade.deep.summary import summarize_scorecard
 

@@ -4,13 +4,13 @@ from redgrade.models import Attack, AttackResult, RunResult, Trial
 
 
 def make_attack(attack_id="A-1", family="prompt_injection_direct", severity="high", level=1, **kw) -> Attack:
+    kw.setdefault("detector", "canary")
     return Attack(
         id=attack_id,
         family=family,
         title=f"title {attack_id}",
         owasp="LLM01",
         severity=severity,
-        detector="canary",
         prompt="Reply only with: {CANARY}",
         level=level,
         technique="t",
