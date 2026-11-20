@@ -5,6 +5,7 @@ from html import escape
 from redgrade.baseline import BaselineComparison, bad_count
 from redgrade.constants import PI_LEVEL_WEIGHTS, SEVERITIES
 from redgrade.formats._common import finding_message, findings
+from redgrade.levels import LevelScorer, level_label
 from redgrade.models import RunResult
 from redgrade.policy import Check, passed
 from redgrade.scorecard import build_scorecard
@@ -63,7 +64,9 @@ def _gate(checks: list[Check]) -> str:
                 f"{int(c.value)}",
                 f"{'>=' if c.name.startswith('coverage.') else '<='} {int(c.limit)}",
             )
-        elif c.name.startswith("pi."):
+        elif c.name.startswith("level."):
+            value, limit = (f"L{int(c.value)}" if c.value else "none"), f">= L{int(c.limit)}"
+        elif c.name.startswith(("pi.", "score.")):
             value, limit = f"{c.value:g}", f">= {c.limit:g}"
         elif c.name.startswith("utility."):
             value, limit = _pct(c.value), f">= {_pct(c.limit)}"
@@ -72,6 +75,37 @@ def _gate(checks: list[Check]) -> str:
         mark = ("ok", "pass") if c.passed else ("FAIL", "fail")
         rows.append([_td(c.name), _td(value, "num"), _td(limit, "num"), _td(mark[0], mark[1])])
     return _table(["check", "value", "limit", ""], rows, frozenset({1, 2}))
+
+
+def _levels(run: RunResult, max_asr_by_level: dict[int, float] | None) -> str:
+    posture = LevelScorer().score(run, max_asr_by_level=max_asr_by_level)
+    cls = "pass" if posture.first_broken is None and posture.resisted_up_to else "fail"
+    out = [f'<p><span class="badge {cls}">{escape(posture.verdict)}</span></p>']
+    rows = []
+    for st in posture.levels:
+        status_cls = {"resisted": "pass", "broken": "fail"}.get(st.status, "muted")
+        rows.append(
+            [
+                _td(level_label(st.level)),
+                _td(str(st.attacks), "num"),
+                _td(_pct(st.asr), f"num {_cell_class(st.asr)}"),
+                _td(st.status, status_cls),
+                _td(", ".join(st.broken_by)),
+            ]
+        )
+    out.append(_table(["level", "attacks", "ASR", "status", "got through"], rows, frozenset({1, 2})))
+    fam_rows = [
+        [
+            _td(f.name),
+            _td(level_label(f.resisted_up_to)),
+            _td(level_label(f.first_broken) if f.first_broken else ""),
+            _td(", ".join(f"L{lv}" for lv in f.untested)),
+        ]
+        for f in posture.families
+    ]
+    if fam_rows:
+        out.append(_table(["family", "holds up to", "broken at", "not tested"], fam_rows))
+    return "".join(out)
 
 
 def _scorecard(run: RunResult) -> str:
@@ -112,6 +146,7 @@ def to_html(
     comparison: BaselineComparison | None = None,
     include_output: bool = False,
     title: str = "Redgrade report",
+    max_asr_by_level: dict[int, float] | None = None,
 ) -> str:
     ok = passed(checks)
     parts = [
@@ -121,6 +156,10 @@ def to_html(
         f"&times; {run.trials_per_attack} trials &middot; {len(run.skipped)} skipped</p>",
         "<h2>Gate</h2>",
         _gate(checks),
+        "<h2>Security level</h2>",
+        '<p class="muted">L1 basic, L2 structured, L3 indirect, L4 evasive, L5 compositional. '
+        "A level holds only if every lower tested level holds.</p>",
+        _levels(run, max_asr_by_level),
         "<h2>Scorecard</h2>",
         '<p class="muted">Level columns: attack success rate (successes/valid trials), lower is better.</p>',
         _scorecard(run),

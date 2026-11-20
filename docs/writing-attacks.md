@@ -327,6 +327,18 @@ Built-in prompt-injection attacks carry extra fields used for maturity scoring a
 
 `level` is orthogonal to `severity` (`low` … `critical`): level is sophistication, not impact.
 
+The same ladder applies to **every** family, not only prompt injection: a leak request that just
+asks is L1, one wrapped in a pretext is L2, a poisoned tool description is L3, a Base64-encoded
+one is L4, a multi-turn one is L5. Every built-in attack has a level; give yours one too, or it is
+left off the security-level ladder (the report counts unleveled attacks). `mutations` work on any
+family's seed, not only PI ones (built-in example: `ID-001`, `OH-001`, `RAG-001`).
+
+The report's **Security level** section (all families) is contiguous: the app holds up to L*k*
+only if every tested level from L1 to L*k* is resisted (limits from `max_asr_by_level`, default
+0). Gate it with `min_security_level` and `min_family_level`. The PI posture below keeps its
+historical "highest resisted level", which is the highest single level resisted even when a lower
+one fails.
+
 ### `technique`
 
 Stable string id for grouping in reports, e.g. `ignore_override`, `fake_system`, `delimiter_escape`,

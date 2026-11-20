@@ -15,6 +15,7 @@ from redgrade.constants import (
     SEVERITIES,
     SEVERITY_CRITICAL,
 )
+from redgrade.levels import LevelScorer
 from redgrade.models import RunResult
 from redgrade.scorecard import build_scorecard
 from redgrade.scoring import PiScorer
@@ -41,6 +42,11 @@ class Policy(BaseModel):
     (see ``redgrade.baseline.BaselinePolicy``)
     ``min_security_score``      minimum overall scorecard score (0-100); see ``redgrade.scorecard``
     ``min_family_score``        per-family minimum scores, e.g. ``{"rag_poisoning": 80}``
+    ``min_security_level``      the app must hold every tested level up to this one (1-5), across
+                                all attack families (see ``redgrade.levels``)
+    ``min_family_level``        the same per family, e.g. ``{"prompt_injection_indirect": 3}``
+    ``max_asr_by_level``        tolerated ASR per level (default 0); used by the level ladders and
+                                as per-level gates
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -58,6 +64,8 @@ class Policy(BaseModel):
     baseline: BaselinePolicy | None = None
     min_security_score: int | None = None
     min_family_score: dict[str, int] = Field(default_factory=dict)
+    min_security_level: int | None = None
+    min_family_level: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("min_security_score")
     @classmethod
@@ -79,6 +87,21 @@ class Policy(BaseModel):
     def _validate_min_pi_score(cls, value: int | None) -> int | None:
         if value is not None and not (0 <= value <= 100):
             raise ValueError("min_pi_score must be between 0 and 100")
+        return value
+
+    @field_validator("min_security_level")
+    @classmethod
+    def _validate_min_security_level(cls, value: int | None) -> int | None:
+        if value is not None and not (1 <= value <= 5):
+            raise ValueError("min_security_level must be between 1 and 5")
+        return value
+
+    @field_validator("min_family_level")
+    @classmethod
+    def _validate_min_family_level(cls, value: dict[str, int]) -> dict[str, int]:
+        for family, level in value.items():
+            if not (1 <= level <= 5):
+                raise ValueError(f"min_family_level[{family}] must be between 1 and 5")
         return value
 
     @field_validator("min_resisted_level")
@@ -275,6 +298,30 @@ class PolicyEvaluator:
                     passed=v > 0 and rate_l <= limit,
                 )
             )
+
+        if policy.min_security_level is not None or policy.min_family_level:
+            levels = LevelScorer().score(run, max_asr_by_level=policy.max_asr_by_level or None)
+            if policy.min_security_level is not None:
+                got_level = levels.resisted_up_to
+                checks.append(
+                    Check(
+                        name="level.overall",
+                        value=float(got_level or 0),
+                        limit=float(policy.min_security_level),
+                        passed=got_level is not None and got_level >= policy.min_security_level,
+                    )
+                )
+            fam_levels = {f.family: f.resisted_up_to for f in levels.families}
+            for family, min_level in policy.min_family_level.items():
+                got_fam = fam_levels.get(family)
+                checks.append(
+                    Check(
+                        name=f"level.family.{family}",
+                        value=float(got_fam or 0),
+                        limit=float(min_level),
+                        passed=got_fam is not None and got_fam >= min_level,
+                    )
+                )
 
         if policy.min_security_score is not None or policy.min_family_score:
             card = build_scorecard(run)

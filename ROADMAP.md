@@ -22,6 +22,7 @@ Applications (2026).
 | 0.5 | Real file attachments: PDF / DOCX / HTML / MD / CSV / JSON / PNG-metadata builders, hide techniques, multipart + base64 delivery | LLM01 | shipped (17 attacks) |
 | 0.5 | Conversation history injection: forged system / assistant / tool turns, tool trajectories, many-shot priming; `ChatTarget` (OpenAI / Anthropic messages APIs) and `{{messages}}` | LLM01, ASI01 | shipped (9 attacks) |
 | 0.5 | Out-of-band collector: attacker web server with per-trial fixtures (pages, JSON APIs, multi-hop chains), `{OOB_URL}`, `oob_callback` detector, inconclusive-when-not-fetched rule; demo browsing agents | LLM01, LLM02, ASI01 | shipped (6 attacks) |
+| 0.5 | Five-level ladder for every family (all built-in attacks leveled, L4 mutations beyond PI), contiguous "security level" in Markdown / JSON / HTML / SDK, `min_security_level` / `min_family_level` gates | all | shipped |
 | later | DNS / external collectors (interactsh-style) for agents that cannot reach the runner over HTTP | LLM02 | planned |
 | later | Visible-text images (OCR / vision injection), `.xlsx`, `.pptx`, EPUB, archives | LLM01 | planned |
 | later | More output handling: XSS payloads, SQL and shell injection through model output | LLM05 | planned |

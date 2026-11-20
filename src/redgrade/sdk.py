@@ -24,6 +24,7 @@ from redgrade.constants import (
     PIPELINE_CI_UTILITY,
 )
 from redgrade.deep.meta import DeepMeta
+from redgrade.levels import LevelPosture, LevelScorer
 from redgrade.loader import load_attacks
 from redgrade.models import AttackResult, RunResult
 from redgrade.oob import OobServer
@@ -51,6 +52,8 @@ class AttackReport(BaseModel):
     policy: Policy
     pi_score: int | None = None
     highest_resisted_level: int | None = None
+    security_level: int | None = None  # holds every tested level up to this one (all families)
+    first_broken_level: int | None = None
     asr_overall: float | None = None
     utility_overall: float | None = None
     deep_meta: DeepMeta | None = None
@@ -64,6 +67,10 @@ class AttackReport(BaseModel):
         """Per-family and overall score with 95% ranges and a letter grade."""
         return build_scorecard(self.run)
 
+    def levels(self) -> LevelPosture:
+        """The level ladder: per-level ASR, how far the app holds, per-family ladders."""
+        return LevelScorer().score(self.run, max_asr_by_level=self.policy.max_asr_by_level or None)
+
     def summary(self) -> str:
         lines = [
             f"Redgrade: {'PASSED' if self.passed else 'FAILED'}",
@@ -71,6 +78,7 @@ class AttackReport(BaseModel):
         ]
         if self.utility_overall is not None:
             lines.append(f"Utility: {self.utility_overall * 100:.0f}%")
+        lines.append(f"Security level: {self.levels().verdict}")
         if self.pi_score is not None:
             lines.append(f"PI Maturity Score: {self.pi_score}/100")
         if self.security_score is not None:
@@ -150,6 +158,7 @@ class AttackReport(BaseModel):
             version=__version__,
             comparison=self.baseline,
             include_output=include_output,
+            max_asr_by_level=self.policy.max_asr_by_level or None,
         )
 
     def to_baseline(self) -> Baseline:
@@ -204,6 +213,7 @@ def _build_report(
     deep_meta: DeepMeta | None = None,
 ) -> AttackReport:
     posture = PiScorer().score(run, max_asr_by_level=policy.max_asr_by_level or None)
+    ladder = LevelScorer().score(run, max_asr_by_level=policy.max_asr_by_level or None)
     card = build_scorecard(run)
     return AttackReport(
         passed=passed(checks),
@@ -212,6 +222,8 @@ def _build_report(
         policy=policy,
         pi_score=posture.score,
         highest_resisted_level=posture.highest_resisted_level,
+        security_level=ladder.resisted_up_to,
+        first_broken_level=ladder.first_broken,
         grade=card.grade,
         security_score=card.score,
         asr_overall=_overall_asr(run),

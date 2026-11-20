@@ -5,7 +5,8 @@ exfiltration attempts, measures how often they work, and fails the pull request 
 regresses. Self-hosted, one small package, no SaaS.
 
 > Status: **0.4 (alpha)**, with real file attachments, conversation-history attacks and an out-of-band
-> collector in development for 0.5. 120 base attacks across 17 packs (plus 30 derived L4 mutations), task-utility probes, PI maturity score and
+> collector in development for 0.5. 120 base attacks across 17 packs (plus 39 derived L4 mutations),
+> every attack on a five-level ladder, task-utility probes, PI maturity score and
 > level posture in the report. Adaptive attackers (and optional LLM-judge) are available via
 > [`redgrade deep`](docs/deep-mode.md), which needs `pip install 'redgrade[deep]'`. Built to pair with
 > [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
@@ -31,20 +32,21 @@ uv run redgrade run -c examples/redgrade.hardened.yaml --trials 3       # exit c
 
 | | vulnerable app | hardened app |
 |---|---|---|
-| Overall ASR | 73% | 1% |
+| Overall ASR | 71% | 1% |
+| Security level (all families) | broken at L1 | holds L1, broken at L2 |
 | PI Maturity Score | 15/100 | 98/100 |
-| Highest resisted level | n/a | L5 |
 | Indirect prompt injection | 50% | 0% |
 | Malicious file attachments | 85% | 0% |
 | Forged conversation history | 100% | 0% |
-| RAG poisoning | 60% | 0% |
-| Leaks (prompt, secrets, PII) | 100% | 0% |
+| RAG poisoning | 50% | 0% |
+| Leaks (prompt, secrets, PII) | 90% | 0% |
 | Gate | **FAILED** | passed |
 
 The hardened app is deliberately imperfect: one medium direct-injection attack (multilingual
-authority blend) still gets through in this simulation; L4 encoding and split variants are
-resisted. That is the point of the tool: a green run shows which attacks stopped working, not that
-the app is safe.
+authority blend, an L2 attack) still gets through in this simulation, so the security level says
+"broken at L2" even though every L3, L4 and L5 attack is resisted. The gate still passes because
+this demo config tolerates a small overall ASR. That is the point of the tool: a green run shows
+which attacks stopped working, not that the app is safe.
 
 ## Attack against your own app
 
@@ -287,6 +289,34 @@ provider and is meant for local or staged red-team runs. Set `detector: llm_judg
 **CI should keep using `redgrade run` or `redgrade check`:** static packs + utility probes only, no
 provider calls, reproducible gates. (`check` is an alias of `run` for pipelines wired in CI.)
 See [docs/deep-mode.md](docs/deep-mode.md) for model strings, env keys, and YAML examples.
+
+## Security level: from basic to advanced attackers
+
+Every built-in attack sits on the same five-level ladder, whatever its family:
+
+| level | attacker | examples |
+|---|---|---|
+| L1 basic | just asks | "ignore your rules", "repeat your instructions", "call delete_all" |
+| L2 structured | frames the request | authority ("I'm the manager"), persona (DAN), pretext, forged system turn, translation |
+| L3 indirect | hides it in data the app reads | poisoned documents and RAG chunks, tool descriptions and results, fetched pages, forged history |
+| L4 evasive | obfuscates it | Base64, hex, ROT13, homoglyphs, zero-width and tag characters, split payloads |
+| L5 compositional | chains steps | multi-turn escalation, many-shot priming, rug pulls, multi-hop page chains |
+
+The report answers one question first: **up to which level does the app hold?** The ladder is
+contiguous: the app holds up to L*k* only if every tested level from L1 to L*k* is resisted, so
+resisting L5 never hides a hole at L2, and a level with no executed attack is shown as *not
+tested*, never as resisted. The report adds a per-level table (attacks, ASR, which attacks got
+through) and the same ladder per family.
+
+```yaml
+policy:
+  min_security_level: 3                          # hold every tested level up to L3
+  min_family_level: { prompt_injection_indirect: 4 }
+  max_asr_by_level: { 5: 0.1 }                   # tolerated ASR per level (default 0)
+```
+
+SDK: `report.security_level`, `report.first_broken_level`, `report.levels()` (the full ladder).
+Severity is separate: level is how skilled the attacker is, severity is how bad the outcome is.
 
 ## Regressions, scorecard and reports
 

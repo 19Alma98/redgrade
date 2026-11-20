@@ -95,6 +95,7 @@ class ReportDictRequired(TypedDict):
 
 
 class ReportDict(ReportDictRequired, total=False):
+    security_level: dict[str, JsonValue]
     deep_meta: dict[str, JsonValue]
     baseline: dict[str, JsonValue]
     scorecard: dict[str, JsonValue]
