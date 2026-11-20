@@ -25,7 +25,9 @@ from redgrade.constants import (
     PIPELINE_CI_UTILITY,
 )
 from redgrade.deep.meta import DeepMeta
+from redgrade.extensions import as_judge
 from redgrade.identity import Identity
+from redgrade.judge import Chat, Judge, JudgeCache
 from redgrade.levels import LevelPosture, LevelScorer
 from redgrade.loader import load_attacks
 from redgrade.models import AttackResult, RunResult
@@ -261,6 +263,8 @@ def run_pipeline(
     on_result: Callable[[AttackResult], None] | None = None,
     baseline: Baseline | str | Path | None = None,
     oob: OobServer | bool | None = None,
+    judge: Judge | Chat | None = None,
+    judge_cache: str | Path | JudgeCache | None = None,
 ) -> AttackReport:
     """Shared runner for SDK and CLI. Accepts any Target (including function wrappers).
 
@@ -286,8 +290,11 @@ def run_pipeline(
     attacks = load_attacks(extra_packs=packs, families=families)
     if not attacks:
         raise AttackError("no attacks selected")
+    scorer = as_judge(judge, judge_cache)
     with oob_collector(oob) as server:
-        run = run_attacks(attacks, target, run_config, on_result=on_result, oob=server)
+        run = run_attacks(attacks, target, run_config, on_result=on_result, oob=server, judge=scorer)
+    if scorer is not None and scorer.cache is not None:
+        scorer.cache.save()
     comparison = compare(run, loaded, policy.baseline) if loaded and policy.baseline else None
     checks = evaluate_policy(run, policy, comparison)
     report = _build_report(run, checks, policy)
@@ -308,12 +315,16 @@ def attack(
     baseline: Baseline | str | Path | None = None,
     oob: OobServer | bool | None = None,
     identity: Identity | dict[str, object] | None = None,
+    judge: Judge | Chat | None = None,
+    judge_cache: str | Path | JudgeCache | None = None,
 ) -> AttackReport:
     """Run attacks against an HTTP app endpoint and return an ``AttackReport``.
 
     ``packs`` is additive: built-in attack packs are always loaded, and any paths
     in ``packs`` are merged in (same as the CLI ``--pack`` / config ``extra_packs``).
     ``oob=True`` (or an ``OobServer``) runs the out-of-band collector for agents that fetch URLs.
+    ``judge`` (a chat callable ``messages -> str``) scores ``llm_judge`` attacks; ``judge_cache``
+    (a path) reuses verdicts for identical outputs. Without a judge those attacks are skipped.
     """
     if not isinstance(target, HttpTarget):
         raise AttackError("attack() requires an HttpTarget (HTTP endpoint of the app under test)")
@@ -341,6 +352,8 @@ def attack(
         run_config=run_config,
         baseline=baseline,
         oob=oob,
+        judge=judge,
+        judge_cache=judge_cache,
     )
 
 
@@ -359,6 +372,8 @@ def check(
     baseline: Baseline | str | Path | None = None,
     oob: OobServer | bool | None = None,
     identity: Identity | dict[str, object] | None = None,
+    judge: Judge | Chat | None = None,
+    judge_cache: str | Path | JudgeCache | None = None,
 ) -> AttackReport:
     """Run CI pipeline checks against an HTTP app endpoint.
 
@@ -412,6 +427,8 @@ def check(
         run_config=run_config,
         baseline=baseline,
         oob=oob,
+        judge=judge,
+        judge_cache=judge_cache,
     )
     return report.model_copy(
         update={"mode": "ci", "pipelines_run": [s.id for s in ci_specs]},

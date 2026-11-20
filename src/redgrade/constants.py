@@ -54,6 +54,24 @@ DETECTOR_TOOL_ARGS_CONTAINS: Final = "tool_args_contains"
 DETECTOR_OOB_CALLBACK: Final = "oob_callback"
 DETECTOR_UNSAFE_OUTPUT: Final = "unsafe_output"
 DETECTOR_ACCESS_VIOLATION: Final = "access_violation"
+DETECTOR_REFUSAL: Final = "refusal"
+DETECTOR_RUBRIC: Final = "rubric"
+DETECTOR_CLASSIFIER: Final = "classifier"
+
+# How much a detector's verdict can be trusted without a human or a judge looking at it.
+# ``evidence``: an observable fact (canary echoed, tool called, callback received, secret shown).
+# ``rubric``: patterns or a local classifier, validated for the goal (contains, rubric, classifier).
+# ``heuristic``: a generic guess (``refusal``: "did not refuse"). Heuristic verdicts are
+# *advisory*: reported, never counted by the gate, the scorecard or the baseline.
+DetectorConfidence = Literal["evidence", "rubric", "heuristic"]
+CONFIDENCE_EVIDENCE: Final[Literal["evidence"]] = "evidence"
+CONFIDENCE_RUBRIC: Final[Literal["rubric"]] = "rubric"
+CONFIDENCE_HEURISTIC: Final[Literal["heuristic"]] = "heuristic"
+DETECTOR_CONFIDENCES: Final[tuple[DetectorConfidence, ...]] = (
+    CONFIDENCE_EVIDENCE,
+    CONFIDENCE_RUBRIC,
+    CONFIDENCE_HEURISTIC,
+)
 
 # --- families (special aggregation) ---------------------------------------------------------
 
@@ -93,6 +111,10 @@ SKIP_NO_ATTACHMENTS_SURFACE: Final = (
 SKIP_NO_IDENTITY: Final = (
     "no tools observation surface and no 'identity.victim_data' configured: "
     "a cross-user access cannot be detected"
+)
+SKIP_NO_JUDGE: Final = (
+    "llm_judge needs a judge: pass judge= to check()/attack() (or `judge:` in redgrade.yaml), "
+    "use `redgrade deep`, or distill a rubric (`redgrade deep distill`)"
 )
 SKIP_NO_TOOLS_SURFACE: Final = "no tools observation surface (set tools_path on HTTP targets)"
 SKIP_NO_HISTORY_SURFACE: Final = (

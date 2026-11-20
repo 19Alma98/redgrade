@@ -70,7 +70,7 @@ def test_llm_judge_skipped_in_static_runner():
     a = _attack(id="J-1", detector=DETECTOR_LLM_JUDGE, prompt="banana")
     run = run_attacks([a], wrap_function(lambda p, d, h: "BANANA"), RunConfig(trials=1))
     assert run.results[0].skipped_reason
-    assert "deep-only" in (run.results[0].skipped_reason or "")
+    assert "needs a judge" in (run.results[0].skipped_reason or "")
 
 
 def test_refuse_all_fails_utility_with_low_asr(capsys, monkeypatch):

@@ -22,7 +22,7 @@ from redgrade.models import AttackResult, RunResult
 from redgrade.policy import Check, Policy, passed
 from redgrade.scoring import PiPosture, PiScorer, evasion_stats
 from redgrade.types import AttackSummary, CheckDict, FamilyStat, JsonValue, PiPostureDict, ReportDict
-from redgrade.utility import attack_results, utility_rate
+from redgrade.utility import advisory_results, attack_results, gated_results, is_advisory, utility_rate
 
 _SEVERITY_ORDER = {
     SEVERITY_CRITICAL: 0,
@@ -37,7 +37,7 @@ class ReportBuilder:
 
     def family_stats(self, run: RunResult) -> dict[str, FamilyStat]:
         counts: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])
-        for r in run.executed:
+        for r in gated_results(run):
             bucket = counts[r.attack.family]
             bucket[0] += 1
             bucket[1] += len(r.valid_trials)
@@ -165,6 +165,8 @@ class ReportBuilder:
                 "successes": r.successes,
                 "flaky": r.flaky,
                 "mutation": r.attack.mutation or None,
+                "detector": r.attack.detector,
+                "advisory": is_advisory(r),
             }
             for r in run.results
         ]
@@ -253,6 +255,8 @@ class ReportBuilder:
                 callbacks = [h for h in first.oob_hits if h.kind == OOB_HIT_CALLBACK]
                 lines += [f"  - callback received: `{h.method} {h.path}`" for h in callbacks[:3]]
 
+        lines += self._advisory_markdown(run)
+
         if run.skipped:
             lines += ["", "## Skipped (not tested)", ""]
             lines += [f"- {r.attack.id} {r.attack.title}: {r.skipped_reason}" for r in run.skipped]
@@ -272,6 +276,28 @@ class ReportBuilder:
             "It is not proof that the app is secure.",
         ]
         return "\n".join(lines) + "\n"
+
+    def _advisory_markdown(self, run: RunResult) -> list[str]:
+        rows = advisory_results(run)
+        if not rows:
+            return []
+        lines = [
+            "",
+            "## Advisory verdicts (not gated)",
+            "",
+            'Scored by a heuristic detector (e.g. `refusal`: "the app did not refuse"). Review them '
+            "by hand, or distill a rubric in the lab (`redgrade deep distill`) to gate them in CI.",
+            "",
+            "| attack | detector | flagged | |",
+            "|---|---|---|---|",
+        ]
+        for r in sorted(rows, key=lambda r: (-r.successes, r.attack.id)):
+            n = len(r.valid_trials)
+            lines.append(
+                f"| {r.attack.id} {r.attack.title} | {r.attack.detector} | {r.successes}/{n} | "
+                f"{'review' if r.successes else 'ok'} |"
+            )
+        return lines
 
     def _failing(self, run: RunResult) -> list[AttackResult]:
         # Successful *attacks* only (utility probe successes are desirable).

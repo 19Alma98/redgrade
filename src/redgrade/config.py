@@ -3,8 +3,9 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from redgrade.classifiers import ClassifierConfig
 from redgrade.constants import (
     DEFAULT_CONCURRENCY,
     DEFAULT_CONFIG_PATH,
@@ -39,6 +40,22 @@ def _as_int(value: object, default: int) -> int:
     return int(value)
 
 
+class JudgeConfig(BaseModel):
+    """``judge:`` in ``redgrade.yaml``: score ``llm_judge`` attacks in a static run (opt-in).
+
+    ``model`` / ``api_base`` use LiteLLM (``pip install 'redgrade[deep]'``); ``path`` points to
+    your own chat callable (``module:function``, ``messages -> str``). ``cache`` stores verdicts
+    by output hash (commit it for reproducible, cheap re-runs).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = None
+    api_base: str | None = None
+    path: str | None = None
+    cache: str | None = None
+
+
 class Config(BaseModel):
     target: TargetConfig
     run: RunConfig
@@ -46,6 +63,9 @@ class Config(BaseModel):
     packs: list[str] = Field(default_factory=list)
     families: list[str] = Field(default_factory=list)
     oob: OobConfig | None = None
+    plugins: list[str] = Field(default_factory=list)
+    classifiers: dict[str, ClassifierConfig] = Field(default_factory=dict)
+    judge: JudgeConfig | None = None
 
 
 EXAMPLE = f"""\
@@ -82,6 +102,11 @@ policy:
 
 # Out-of-band collector: a local "attacker" web server for agents that fetch URLs.
 # oob: {{ host: 127.0.0.1, port: 8787, public_url: "http://host.docker.internal:8787", wait: 1.0 }}
+# Your own detectors (`register_detector`) and local classifiers, for verdicts without a judge:
+# plugins: [my_guards]
+# classifiers: {{ refusal: {{ hf_model: protectai/distilroberta-base-rejection-v1 }} }}
+# Opt-in LLM judge for `detector: llm_judge` attacks (verdicts cached by output hash):
+# judge: {{ model: openai/gpt-4o-mini, cache: .redgrade/judge-cache.json }}
 # packs: [my_attacks.yaml]
 # families: [prompt_injection_direct]
 """
@@ -169,7 +194,21 @@ class ConfigLoader:
         if oob_raw is not None and not isinstance(oob_raw, dict):
             raise ValueError("'oob' must be a mapping")
         oob = OobConfig.model_validate(oob_raw) if oob_raw is not None else None
+        plugins_raw = raw.get("plugins") or []
+        if not isinstance(plugins_raw, list):
+            raise ValueError("'plugins' must be a list of modules")
+        classifiers_raw = raw.get("classifiers") or {}
+        if not isinstance(classifiers_raw, dict):
+            raise ValueError("'classifiers' must be a mapping of name -> {hf_model | path}")
+        judge_raw = raw.get("judge")
+        if judge_raw is not None and not isinstance(judge_raw, dict):
+            raise ValueError("'judge' must be a mapping")
         return Config(
+            plugins=[str(p) for p in plugins_raw],
+            classifiers={
+                str(k): ClassifierConfig.model_validate(v or {}) for k, v in classifiers_raw.items()
+            },
+            judge=JudgeConfig.model_validate(judge_raw) if judge_raw is not None else None,
             target=target,
             run=run,
             policy=policy,

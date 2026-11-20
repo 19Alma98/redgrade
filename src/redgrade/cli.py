@@ -20,11 +20,15 @@ from redgrade.constants import (
     FAMILY_STATUS_AVAILABLE,
     FAMILY_TASK_UTILITY,
 )
+from redgrade.detectors import list_detectors
+from redgrade.extensions import prepare_extensions
 from redgrade.families import FAMILIES
+from redgrade.judge import JudgeError
 from redgrade.loader import PackError, load_attacks
 from redgrade.models import AttackResult
 from redgrade.mutations import available_mutations
 from redgrade.oob import OobServer
+from redgrade.plugins import PluginError, load_plugins
 from redgrade.render import render_attack, render_history, render_turns
 from redgrade.runner import new_canary
 from redgrade.sdk import AttackError, run_pipeline
@@ -48,6 +52,7 @@ def _truncate(text: str, max_len: int) -> str:
 
 def _cmd_list(args: argparse.Namespace) -> int:
     # Discoverability: list includes opt-in builtins unless --family narrows the set.
+    load_plugins(args.plugin)
     attacks = load_attacks(
         extra_packs=args.pack,
         families=args.family or None,
@@ -72,6 +77,10 @@ def _cmd_list(args: argparse.Namespace) -> int:
         print(f"  {name:<12}{', '.join(kinds)}")
     print(f"  {'default':<12}{', '.join(DEFAULT_MUTATIONS)}")
     print(f"\ndeep strategies (redgrade deep --strategy): {', '.join(DEEP_STRATEGIES)}")
+    print("\ndetectors (confidence: evidence > rubric > heuristic; heuristic = advisory, not gated):")
+    for spec in list_detectors():
+        origin = "" if spec.builtin else " (plugin)"
+        print(f"  {spec.name:<20}{spec.confidence:<11}{origin}")
     return 0
 
 
@@ -107,10 +116,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.trials:
         config.run.trials = args.trials
     try:
+        judge = prepare_extensions(config)
         target = build_target(config.target)
         with _collector(config) as oob:
             report = run_pipeline(
                 target,
+                judge=judge,
                 policy=config.policy,
                 families=families or None,
                 packs=config.packs or None,
@@ -119,7 +130,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 baseline=args.baseline,
                 oob=oob,
             )
-    except AttackError as exc:
+    except (AttackError, PluginError, JudgeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
@@ -152,10 +163,12 @@ def _cmd_baseline_update(args: argparse.Namespace) -> int:
         config.run.trials = args.trials
     policy = config.policy.model_copy(update={"baseline": None})
     try:
+        judge = prepare_extensions(config)
         target = build_target(config.target)
         with _collector(config) as oob:
             report = run_pipeline(
                 target,
+                judge=judge,
                 policy=policy,
                 families=families or None,
                 packs=config.packs or None,
@@ -163,7 +176,7 @@ def _cmd_baseline_update(args: argparse.Namespace) -> int:
                 on_result=_progress,
                 oob=oob,
             )
-    except AttackError as exc:
+    except (AttackError, PluginError, JudgeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     err = next((c for c in report.checks if c.name == "error_rate"), None)
@@ -388,6 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("list", help="list available attacks and families")
     p.add_argument("--family", action="append")
     p.add_argument("--pack", action="append", help="extra attack pack (YAML)")
+    p.add_argument("--plugin", action="append", help="plugin module that registers detectors")
     p.set_defaults(func=_cmd_list)
 
     p = sub.add_parser("run", help="attack the target and apply the gate")

@@ -19,7 +19,7 @@ from redgrade.levels import LevelScorer
 from redgrade.models import RunResult
 from redgrade.scorecard import build_scorecard
 from redgrade.scoring import PiScorer
-from redgrade.utility import attack_results, utility_rate, utility_results
+from redgrade.utility import attack_results, gated_results, utility_rate, utility_results
 
 
 def _default_severity_limits() -> dict[str, float]:
@@ -169,7 +169,7 @@ class PolicyEvaluator:
         self, run: RunResult, policy: Policy, comparison: BaselineComparison | None = None
     ) -> list[Check]:
         checks: list[Check] = []
-        executed = run.executed
+        executed = gated_results(run)
         attacks = attack_results(run)
 
         total_trials = sum(len(r.trials) for r in executed)

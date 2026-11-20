@@ -67,6 +67,8 @@ class AttackSummary(TypedDict):
     successes: int
     flaky: bool
     mutation: str | None
+    detector: str
+    advisory: bool
 
 
 class CheckDict(TypedDict):

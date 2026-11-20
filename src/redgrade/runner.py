@@ -22,12 +22,14 @@ from redgrade.constants import (
     SKIP_NO_ATTACHMENTS_SURFACE,
     SKIP_NO_HISTORY_SURFACE,
     SKIP_NO_IDENTITY,
+    SKIP_NO_JUDGE,
     SKIP_NO_OOB,
     SKIP_NO_TOOLS_SURFACE,
 )
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.history import history_text
 from redgrade.identity import Identity, identity_scope
+from redgrade.judge import Judge, judge_goal
 from redgrade.models import Attack, AttackResult, RunResult, TargetObservation, ToolCall, Trial
 from redgrade.oob import OobHit, OobServer, oob_scope
 from redgrade.render import (
@@ -85,8 +87,19 @@ class AttackRunner:
     and their callbacks recorded per trial; without it those attacks are skipped and reported.
     """
 
-    def __init__(self, oob: OobServer | None = None) -> None:
+    def __init__(self, oob: OobServer | None = None, judge: Judge | None = None) -> None:
         self.oob = oob
+        self.judge = judge
+
+    def _score(self, attack: Attack, ctx: DetectorContext) -> tuple[bool, str]:
+        """The verdict for one output. ``llm_judge`` goes to the configured judge; any detector
+        error propagates, so the caller records the trial as an error (never a pass)."""
+        if attack.detector == DETECTOR_LLM_JUDGE:
+            if self.judge is None:
+                raise RuntimeError("llm_judge needs a judge (check(..., judge=...))")
+            docs = [line for line in ctx.inputs.split("\n") if line]
+            return self.judge(goal=judge_goal(attack), output=ctx.output, documents=docs)
+        return get_detector(attack.detector)(ctx)
 
     def run_trial(
         self,
@@ -182,10 +195,11 @@ class AttackRunner:
                     ctx = self._detector_context(
                         attack, config, canary, obs.output, "\n".join(all_inputs), last_tools, hits
                     )
-                    succeeded, _ = get_detector(attack.detector)(ctx)
+                    succeeded, why = self._score(attack, ctx)
                     if succeeded:
                         return Trial(
                             succeeded=True,
+                            verdict=why,
                             output=obs.output,
                             tools_called=last_tools,
                             turn_outputs=turn_outputs,
@@ -245,9 +259,20 @@ class AttackRunner:
     ) -> Trial:
         tools = list(obs.tools_called)
         ctx = self._detector_context(attack, config, canary, obs.output, inputs, tools, hits)
-        succeeded, _why = get_detector(attack.detector)(ctx)
+        try:
+            succeeded, why = self._score(attack, ctx)
+        except Exception as exc:  # a detector, classifier or judge failure is never a pass
+            return Trial(
+                succeeded=False,
+                error=f"detector {attack.detector} failed: {type(exc).__name__}: {exc}",
+                output=obs.output,
+                tools_called=tools,
+                latency_s=latency_s,
+                canary=canary,
+            )
         return Trial(
             succeeded=succeeded,
+            verdict=why,
             output=obs.output,
             tools_called=tools,
             latency_s=latency_s,
@@ -267,11 +292,8 @@ class AttackRunner:
         attacks with forged history when the target cannot receive history natively."""
 
         def one(attack: Attack) -> AttackResult:
-            if attack.detector == DETECTOR_LLM_JUDGE:
-                return AttackResult(
-                    attack=attack,
-                    skipped_reason="llm_judge is deep-only (not allowed in static CI runs)",
-                )
+            if attack.detector == DETECTOR_LLM_JUDGE and self.judge is None:
+                return AttackResult(attack=attack, skipped_reason=SKIP_NO_JUDGE)
             if attack.requires_secrets and not config.secrets:
                 return AttackResult(attack=attack, skipped_reason="no 'secrets' configured")
             if attack.has_attachments and not target_accepts_attachments(target):
@@ -316,8 +338,9 @@ def run_trial(
     canary: str | None = None,
     *,
     oob: OobServer | None = None,
+    judge: Judge | None = None,
 ) -> Trial:
-    return AttackRunner(oob).run_trial(attack, target, config, canary=canary)
+    return AttackRunner(oob, judge).run_trial(attack, target, config, canary=canary)
 
 
 def run_attacks(
@@ -327,5 +350,6 @@ def run_attacks(
     on_result: Callable[[AttackResult], None] | None = None,
     *,
     oob: OobServer | None = None,
+    judge: Judge | None = None,
 ) -> RunResult:
-    return AttackRunner(oob).run(attacks, target, config, on_result=on_result)
+    return AttackRunner(oob, judge).run(attacks, target, config, on_result=on_result)

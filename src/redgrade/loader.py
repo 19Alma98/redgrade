@@ -37,6 +37,8 @@ class PackLoader:
             extra["level"] = raw["level"]
         if "technique" in raw:
             extra["technique"] = str(raw["technique"])
+        if "advisory" in raw:
+            extra["advisory"] = bool(raw["advisory"])
         if "mutate_scope" in raw:
             extra["mutate_scope"] = str(raw["mutate_scope"])
         if "mutations" in raw:

@@ -15,6 +15,7 @@ def counts_for_pi_score(attack: Attack) -> bool:
         and attack.detector in PI_SCORE_DETECTORS
         and not attack.requires_secrets
         and not attack.requires_tools
+        and not attack.advisory
     )
 
 

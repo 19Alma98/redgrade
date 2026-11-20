@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from redgrade.constants import FAMILY_TASK_UTILITY, SEVERITIES, Severity
 from redgrade.models import AttackResult, RunResult
 from redgrade.stats import wilson_interval
+from redgrade.utility import gated_results
 
 BASELINE_SCHEMA_VERSION = 1
 DEFAULT_BASELINE_PATH = ".redgrade/baseline.json"
@@ -108,7 +109,7 @@ class Baseline(BaseModel):
                 bad=bad_count(r),
                 errors=r.errors,
             )
-            for r in run.executed
+            for r in gated_results(run)
         }
         return cls(redgrade_version=__version__, pack_hash=pack_hash(run), entries=entries)
 
@@ -207,7 +208,7 @@ def compare(
     policy = policy or BaselinePolicy()
     today = today or date.today()
     waivers = {w.id: w for w in policy.allow}
-    now_by_id = {r.attack.id: r for r in run.executed}
+    now_by_id = {r.attack.id: r for r in gated_results(run)}
     floor = _SEVERITY_RANK[policy.severity_at_least]
 
     warnings: list[str] = []

@@ -148,6 +148,8 @@ class Attack(BaseModel):
     mutation: str = ""
     mutate_scope: MutateScope = MUTATE_SCOPE_ALL
     description: str = ""
+    # Advisory attacks are reported but never gated (also implied by a heuristic detector).
+    advisory: bool = False
 
     @property
     def has_attachments(self) -> bool:
@@ -177,6 +179,7 @@ class Trial(BaseModel):
     """One execution of one attack against the target."""
 
     succeeded: bool  # True = the attack worked (bad)
+    verdict: str = ""  # the detector's explanation
     output: str = ""
     tools_called: list[ToolCall] = Field(default_factory=list)
     turn_outputs: list[str] = Field(default_factory=list)
