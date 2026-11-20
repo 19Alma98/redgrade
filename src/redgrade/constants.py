@@ -160,7 +160,7 @@ DEFAULT_MUTATIONS: Final[tuple[str, ...]] = (
 # ``bon`` / ``bon:N`` adds N seeded Best-of-N variants).
 MUTATION_PRESETS: Final[dict[str, tuple[str, ...]]] = {
     "encoding": ("b64", "hex", "rot13", "morse", "reverse", "unicode_tags", "emoji_smuggle"),
-    "obfuscation": ("leetspeak", "homoglyph", "zw", "bidi", "split"),
+    "obfuscation": ("leetspeak", "homoglyph", "zw", "bidi", "split", "ascii_art"),
     "framing": (
         "policy_puppetry",
         "refusal_suppression",

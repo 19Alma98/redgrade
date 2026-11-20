@@ -24,6 +24,8 @@ from typing import NamedTuple
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from redgrade.font import raster
+
 
 class Attachment(BaseModel):
     """A built file ready to be sent to the app under test."""
@@ -330,7 +332,7 @@ def _build_pdf(visible: str, payload: str, hide: str) -> _Built:
     return _Built(bytes(out), "\n".join(t for t in body_text if t), metadata)
 
 
-# --- png (metadata only) --------------------------------------------------------------------
+# --- png (metadata or pixels) ---------------------------------------------------------------
 
 
 def _png_chunk(tag: bytes, data: bytes) -> bytes:
@@ -338,9 +340,73 @@ def _png_chunk(tag: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
 
 
+_PNG_WRAP = 48
+_PNG_MARGIN = 8
+_PNG_INK = 0x00
+_PNG_PAPER = 0xFF
+_PNG_FAINT = 0xF2  # ~5% contrast on white: hard to see, still read by OCR / vision models
+# hide -> (payload scale, payload ink)
+_PNG_PIXEL_STYLES: dict[str, tuple[int, int]] = {
+    "visible": (3, _PNG_INK),
+    "low_contrast": (3, _PNG_FAINT),
+    "tiny": (1, _PNG_INK),
+}
+
+
+def _wrap(text: str, width: int = _PNG_WRAP) -> list[str]:
+    lines: list[str] = []
+    for para in text.splitlines() or [""]:
+        line = ""
+        for word in para.split():
+            if line and len(line) + 1 + len(word) > width:
+                lines.append(line)
+                line = word
+            else:
+                line = f"{line} {word}" if line else word
+        lines.append(line)
+    return lines
+
+
+def _text_png(blocks: list[tuple[str, int, int]]) -> bytes:
+    """Grayscale PNG with each ``(text, scale, ink)`` block drawn in the 5x7 font, top to bottom."""
+    rows: list[tuple[list[bool], int, int]] = []  # (cells, scale, ink) per bitmap row
+    for text, scale, ink in blocks:
+        for line in _wrap(text):
+            for cells in raster(line):
+                rows.extend([(cells, scale, ink)] * scale)
+            rows.extend([([], scale, ink)] * (2 * scale))  # line gap
+    width = max([len(c) * s for c, s, _ in rows] + [32]) + 2 * _PNG_MARGIN
+    blank = bytes([_PNG_PAPER]) * width
+    scan = [b"\x00" + blank] * _PNG_MARGIN
+    for cells, scale, ink in rows:
+        line = bytearray(blank)
+        for x, on in enumerate(cells):
+            if on:
+                start = _PNG_MARGIN + x * scale
+                line[start : start + scale] = bytes([ink]) * scale
+        scan.append(b"\x00" + bytes(line))
+    scan += [b"\x00" + blank] * _PNG_MARGIN
+    height = len(scan)
+    chunks = [
+        _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)),
+        _png_chunk(b"IDAT", zlib.compress(b"".join(scan), 9)),
+        _png_chunk(b"IEND", b""),
+    ]
+    return b"\x89PNG\r\n\x1a\n" + b"".join(chunks)
+
+
 def _build_png(visible: str, payload: str, hide: str) -> _Built:
-    """A small white PNG. The payload lives in text chunks (EXIF-like metadata), not in pixels:
-    drawing text needs a font renderer, which Redgrade does not depend on."""
+    """A PNG whose payload hides in text chunks (``metadata``) or is drawn in its pixels.
+
+    Pixel modes (``visible``, ``low_contrast``, ``tiny``) draw the cover text in black and the
+    payload below it, for apps that OCR images or pass them to a vision model. For those, the
+    attachment's ``text`` is what OCR reads (cover text + payload); a plain text extractor gets
+    nothing from an image.
+    """
+    if hide in _PNG_PIXEL_STYLES:
+        scale, ink = _PNG_PIXEL_STYLES[hide]
+        data = _text_png([(visible or " ", 3, _PNG_INK), (payload, scale, ink)])
+        return _Built(data, "\n".join(x for x in (visible, payload) if x))
     width = height = 64
     raw = b"".join(b"\x00" + b"\xff\xff\xff" * width for _ in range(height))
     chunks = [
@@ -373,7 +439,7 @@ KINDS: dict[str, _Kind] = {
     "pdf": _Kind(
         _build_pdf, "application/pdf", "pdf", ("plain", "white_text", "tiny_text", "offpage", "metadata")
     ),
-    "png": _Kind(_build_png, "image/png", "png", ("metadata",)),
+    "png": _Kind(_build_png, "image/png", "png", ("metadata", "visible", "low_contrast", "tiny")),
 }
 
 _CANARY = re.compile(r"\{CANARY\}")

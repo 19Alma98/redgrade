@@ -5,7 +5,7 @@ attacks:
     level: 1
     technique: ignore_override
     # default + newer evasions: framing wrappers, more encodings and 3 seeded Best-of-N variants
-    mutations: [default, framing, morse, reverse, emoji_smuggle, "bon:3"]
+    mutations: [default, framing, morse, reverse, emoji_smuggle, ascii_art, "bon:3"]
     severity: high
     detector: canary
     prompt: |-
