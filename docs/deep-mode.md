@@ -34,7 +34,21 @@ signal for hardening, not as the default merge gate.
 
 Pick them with `strategies:` in the deep config, `--strategy` (repeatable) on the CLI, or
 `strategies=[...]` in `deep_attack()` / `check_deep()`. Each goal runs once per strategy, with id
-`<goal>~<strategy>`; a winning prompt can be exported as a static seed with `--export-wins`.
+`<goal>~<strategy>`. On the security ladder single-turn strategies (`pair`, `tap`, `best_of_n`) count
+as **L4** and multi-turn ones (`crescendo`, `goat`, `echo_chamber`) as **L5**.
+
+### From the lab to CI: `--export-wins`
+
+`redgrade deep --export-wins wins.yaml` (SDK: `report.export_winning_seeds(path)`) writes every
+winning attack as a static pack entry (`PROMOTED-<goal>~<strategy>`, with the level above). Add the
+file with `--pack` / `packs=` and the win is replayed on every pull request, with no provider calls:
+
+- **single-turn wins** export the winning prompt and documents; a `best_of_n` win exports the exact
+  augmented text, so it reproduces byte for byte;
+- **multi-turn wins** also export the conversation that set the win up as forged `history:` (user
+  and assistant turns, earlier canaries templated back to `{CANARY}`). Replaying it needs a target
+  that receives history (`{{history}}` / `{{messages}}`, a chat target, or a `history` parameter);
+  otherwise the attack is skipped and reported, never counted as passed.
 
 | strategy | kind | how it works | reference |
 |---|---|---|---|
@@ -150,5 +164,6 @@ Provider or target failures surface as `DeepError` and count as attack failures 
 
 ## Writing deep-aware attacks
 
-Pack attacks used as round-1 seeds can set `level: 5` and `tags: [adaptive_pair]` where documented in
-[writing-attacks.md](writing-attacks.md). Static CI attacks do not need these fields.
+Any pack attack can be a round-1 seed (`seed_attack_ids:`); its prompt and documents, including
+`{CANARY}`, `{OOB_URL}` and L4 mutation markers, are rendered the same way as in a static run.
+Static CI attacks need no extra fields.

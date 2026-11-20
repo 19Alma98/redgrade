@@ -9,6 +9,9 @@ class WinningSeed(BaseModel):
     prompt: str
     documents: list[str] = Field(default_factory=list)
     detector: str = "canary"
+    level: int = 4
+    # Conversation before the winning turn (multi-turn strategies), replayed as forged history.
+    history: list[dict[str, str]] = Field(default_factory=list)
 
 
 class DeepMeta(BaseModel):

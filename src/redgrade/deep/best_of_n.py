@@ -47,7 +47,7 @@ class BestOfNAttacker:
         secrets: list[str] | None = None,
         allowed_hosts: list[str] | None = None,
     ) -> GoalRun:
-        attack = _synthetic_attack(goal).model_copy(update={"technique": "adaptive_best_of_n"})
+        attack = _synthetic_attack(goal, technique="adaptive_best_of_n")
         base_prompt = goal.seed_prompt if goal.seed_prompt is not None else goal.text
         base_docs = list(goal.seed_documents)
         trials: list[Trial] = []

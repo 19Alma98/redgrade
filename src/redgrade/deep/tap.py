@@ -97,7 +97,7 @@ class TapAttacker:
         secrets: list[str] | None = None,
         allowed_hosts: list[str] | None = None,
     ) -> GoalRun:
-        attack = _synthetic_attack(goal)
+        attack = _synthetic_attack(goal, technique="adaptive_tap")
         trials: list[Trial] = []
         rounds_used = 0
         winning_prompt: str | None = None

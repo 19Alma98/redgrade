@@ -13,7 +13,7 @@ def _attack_dict(seed: WinningSeed) -> dict[str, object]:
     attack: dict[str, object] = {
         "id": f"PROMOTED-{seed.goal_id}",
         "title": f"Promoted from deep ({seed.strategy})",
-        "level": 5,
+        "level": seed.level,
         "technique": f"adaptive_{seed.strategy}",
         "severity": "high",
         "detector": seed.detector,
@@ -21,6 +21,9 @@ def _attack_dict(seed: WinningSeed) -> dict[str, object]:
     }
     if seed.documents:
         attack["documents"] = list(seed.documents)
+    if seed.history:
+        # Replays the conversation that set the win up; needs a history surface on the target.
+        attack["history"] = [dict(m) for m in seed.history]
     return attack
 
 

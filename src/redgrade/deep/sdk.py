@@ -161,6 +161,10 @@ def deep_attack(
                     prompt=gr.winning_prompt,
                     documents=list(gr.winning_documents),
                     detector=spec.detector,
+                    level=gr.attack.level or 4,
+                    history=[
+                        {"role": m["role"], "content": m.get("content", "")} for m in gr.winning_history
+                    ],
                 )
             )
     run = RunResult(

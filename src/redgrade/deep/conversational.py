@@ -32,6 +32,7 @@ from redgrade.targets import Target, invoke_target, normalize_observation
 from redgrade.types import HistoryMessage
 
 ChatFn = Callable[[list[dict[str, str]]], str]
+_CANARY_TOKEN = re.compile(r"RG-[0-9A-F]{8}")
 
 _JSON_CONTRACT = (
     'Reply with only a JSON object with keys "prompt" (string, your next message to the target) '
@@ -135,13 +136,14 @@ class ConversationalAttacker:
         secrets: list[str] | None = None,
         allowed_hosts: list[str] | None = None,
     ) -> GoalRun:
-        attack = _synthetic_attack(goal).model_copy(update={"technique": f"adaptive_{self.name}"})
+        attack = _synthetic_attack(goal, level=5, technique=f"adaptive_{self.name}")
         trials: list[Trial] = []
         history: list[HistoryMessage] = []
         refused: list[str] = []
         rounds_used = 0
         winning_prompt: str | None = None
         winning_documents: tuple[str, ...] = ()
+        winning_history: tuple[HistoryMessage, ...] = ()
 
         for round_idx in range(1, self._max_rounds + 1):
             rounds_used = round_idx
@@ -180,6 +182,10 @@ class ConversationalAttacker:
             if trial.succeeded:
                 winning_prompt = prompt_tpl
                 winning_documents = tuple(doc_tpls)
+                winning_history = tuple(
+                    {"role": m["role"], "content": _CANARY_TOKEN.sub("{CANARY}", m["content"])}
+                    for m in history
+                )
                 break
             if self._backtrack and is_refusal(trial.output):
                 refused.append(prompt)
@@ -194,6 +200,7 @@ class ConversationalAttacker:
             strategy=self.name,
             winning_prompt=winning_prompt,
             winning_documents=winning_documents,
+            winning_history=winning_history,
         )
 
 
