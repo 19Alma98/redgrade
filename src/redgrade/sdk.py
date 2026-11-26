@@ -23,9 +23,11 @@ from redgrade.constants import (
     PIPELINE_CI_AGENT,
     PIPELINE_CI_ATTACHMENTS,
     PIPELINE_CI_OOB,
+    PIPELINE_CI_TOOLS,
     PIPELINE_CI_UTILITY,
 )
 from redgrade.deep.meta import DeepMeta
+from redgrade.deep.strength import AttackerAssessment
 from redgrade.extensions import as_judge
 from redgrade.findings import (
     DEFAULT_REQUIRED_LEVEL,
@@ -49,8 +51,9 @@ from redgrade.runner import RunConfig, run_attacks
 from redgrade.scorecard import Scorecard, build_scorecard, scorecard_markdown
 from redgrade.scoring import PiScorer
 from redgrade.targets import HttpTarget, Target, target_observes_tools
+from redgrade.tool_server import ToolServer, ToolServerConfig
 from redgrade.types import ReportDict
-from redgrade.utility import attack_results, utility_rate
+from redgrade.utility import attack_results, utility_rate, utility_under_attack
 
 
 class AttackError(Exception):
@@ -70,6 +73,8 @@ class AttackReport(BaseModel):
     first_broken_level: int | None = None
     asr_overall: float | None = None
     utility_overall: float | None = None
+    # Attack trials (with a ``utility`` check) where the user's task still got done.
+    utility_under_attack: float | None = None
     deep_meta: DeepMeta | None = None
     mode: Literal["ci", "deep", "scan"] | None = None
     pipelines_run: list[str] = Field(default_factory=list)
@@ -81,6 +86,8 @@ class AttackReport(BaseModel):
     required_level: int | None = None
     attack_sources: dict[str, Source] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
+    # Scan: how strong the attacker model was (usable answers, calibration on a reference target).
+    attacker: AttackerAssessment | None = None
 
     def findings(self) -> list[Finding]:
         """Attacks that got through at least once, with reproduction and a suggested fix."""
@@ -101,6 +108,7 @@ class AttackReport(BaseModel):
             required_level=level,
             max_error_rate=self.policy.max_error_rate,
             notes=self.notes,
+            weak_attacker="; ".join(self.attacker.reasons) if self.attacker and self.attacker.weak else None,
         )
 
     def compliance(self, frameworks: list[str] | None = None) -> ComplianceReport:
@@ -161,6 +169,10 @@ class AttackReport(BaseModel):
             lines.append(f"Security grade: {self.grade} ({self.security_score}/100)")
         if self.utility_overall is not None:
             lines.append(f"Utility: {self.utility_overall * 100:.0f}%")
+        if self.utility_under_attack is not None:
+            lines.append(f"Utility under attack: {self.utility_under_attack * 100:.0f}%")
+        if self.attacker is not None:
+            lines.append(f"Attacker: {self.attacker.summary()}")
         findings = self.findings()
         blocking = set(ready.blocking)
         if findings:
@@ -185,6 +197,8 @@ class AttackReport(BaseModel):
             body = body.replace("## Gate", "## Policy checks", 1)
             head = ["# Redgrade scan", ""]
             head += findings_markdown(self.readiness(), self.findings(), include_output=include_output)
+            if self.attacker is not None:
+                head.insert(3, f"- Attacker: {self.attacker.summary()}")
             md = "\n".join(head) + "\n\n# Details\n" + body
         md = md.rstrip("\n") + "\n" + "\n".join(scorecard_markdown(self.scorecard())) + "\n"
         if self.baseline is not None:
@@ -202,9 +216,12 @@ class AttackReport(BaseModel):
             data["readiness"] = ready.model_dump(mode="json") | {"verdict": ready.verdict}
             data["findings"] = [f.model_dump(mode="json") for f in self.findings()]
             data["notes"] = list(self.notes)
+            if self.attacker is not None:
+                data["attacker"] = self.attacker.model_dump(mode="json")
         if self.deep_meta is not None:
             data["deep_meta"] = self.deep_meta.model_dump()
         data["scorecard"] = self.scorecard().model_dump(mode="json")
+        data["utility_under_attack"] = self.utility_under_attack
         if self.baseline is not None:
             data["baseline"] = self.baseline.model_dump(mode="json")
         return data
@@ -312,6 +329,7 @@ def _build_report(
         security_score=card.score,
         asr_overall=_overall_asr(run),
         utility_overall=utility_rate(run),
+        utility_under_attack=utility_under_attack(run),
         deep_meta=deep_meta,
     )
 
@@ -333,6 +351,28 @@ def oob_collector(oob: OobServer | bool | None) -> Iterator[OobServer | None]:
         yield server
 
 
+ToolServerArg = ToolServer | ToolServerConfig | dict[str, object] | None
+
+
+@contextmanager
+def tool_collector(tools: ToolServerArg) -> Iterator[ToolServer | None]:
+    """Resolve the SDK ``tool_server`` argument: a ``ToolServer`` (started for the run when it is
+    stopped), a ``ToolServerConfig`` or the same mapping as ``tool_server:`` in ``redgrade.yaml``."""
+    if not tools:
+        yield None
+        return
+    if isinstance(tools, dict):
+        tools = ToolServerConfig.model_validate(tools)
+    server = ToolServer.from_config(tools) if isinstance(tools, ToolServerConfig) else tools
+    if not isinstance(server, ToolServer):
+        raise AttackError("tool_server must be a ToolServer, a ToolServerConfig, a mapping or None")
+    if server.running:
+        yield server
+        return
+    with server:
+        yield server
+
+
 def run_pipeline(
     target: Target,
     *,
@@ -345,6 +385,7 @@ def run_pipeline(
     oob: OobServer | bool | None = None,
     judge: Judge | Chat | None = None,
     judge_cache: str | Path | JudgeCache | None = None,
+    tool_server: ToolServerArg = None,
 ) -> AttackReport:
     """Shared runner for SDK and CLI. Accepts any Target (including function wrappers).
 
@@ -371,8 +412,10 @@ def run_pipeline(
     if not attacks:
         raise AttackError("no attacks selected")
     scorer = as_judge(judge, judge_cache)
-    with oob_collector(oob) as server:
-        run = run_attacks(attacks, target, run_config, on_result=on_result, oob=server, judge=scorer)
+    with oob_collector(oob) as server, tool_collector(tool_server) as tools:
+        run = run_attacks(
+            attacks, target, run_config, on_result=on_result, oob=server, judge=scorer, tools=tools
+        )
     if scorer is not None and scorer.cache is not None:
         scorer.cache.save()
     comparison = compare(run, loaded, policy.baseline) if loaded and policy.baseline else None
@@ -397,6 +440,7 @@ def attack(
     identity: Identity | dict[str, object] | None = None,
     judge: Judge | Chat | None = None,
     judge_cache: str | Path | JudgeCache | None = None,
+    tool_server: ToolServerArg = None,
 ) -> AttackReport:
     """Run attacks against an HTTP app endpoint and return an ``AttackReport``.
 
@@ -434,6 +478,7 @@ def attack(
         oob=oob,
         judge=judge,
         judge_cache=judge_cache,
+        tool_server=tool_server,
     )
 
 
@@ -454,6 +499,7 @@ def check(
     identity: Identity | dict[str, object] | None = None,
     judge: Judge | Chat | None = None,
     judge_cache: str | Path | JudgeCache | None = None,
+    tool_server: ToolServerArg = None,
 ) -> AttackReport:
     """Run CI pipeline checks against an HTTP app endpoint.
 
@@ -473,6 +519,8 @@ def check(
             pipelines.append(PIPELINE_CI_OOB)
         if target_observes_tools(target):
             pipelines.append(PIPELINE_CI_AGENT)
+        if tool_server:
+            pipelines.append(PIPELINE_CI_TOOLS)
     specs = resolve_pipelines(pipelines, disable)
     ci_specs = [s for s in specs if not s.lab]
     if not ci_specs:
@@ -509,6 +557,7 @@ def check(
         oob=oob,
         judge=judge,
         judge_cache=judge_cache,
+        tool_server=tool_server,
     )
     return report.model_copy(
         update={"mode": "ci", "pipelines_run": [s.id for s in ci_specs]},

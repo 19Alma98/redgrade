@@ -3,13 +3,23 @@ from typing import Protocol
 
 from redgrade.constants import (
     DEEP_STRATEGIES,
+    STRATEGY_BAD_LIKERT_JUDGE,
     STRATEGY_BEST_OF_N,
     STRATEGY_CRESCENDO,
     STRATEGY_ECHO_CHAMBER,
     STRATEGY_GOAT,
+    STRATEGY_HYDRA,
+    STRATEGY_INDIRECT,
+    STRATEGY_META,
     STRATEGY_MISCHIEVOUS_USER,
     STRATEGY_PAIR,
     STRATEGY_TAP,
+)
+from redgrade.deep.advanced import (
+    BadLikertJudgeAttacker,
+    HydraAttacker,
+    IndirectAttacker,
+    MetaAgentAttacker,
 )
 from redgrade.deep.attacker import GoalRun, GoalSpec, PairLiteAttacker
 from redgrade.deep.best_of_n import BestOfNAttacker
@@ -62,5 +72,13 @@ def get_strategy(
         return BestOfNAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
     if name == STRATEGY_MISCHIEVOUS_USER:
         return MischievousUserAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
+    if name == STRATEGY_META:
+        return MetaAgentAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
+    if name == STRATEGY_HYDRA:
+        return HydraAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
+    if name == STRATEGY_BAD_LIKERT_JUDGE:
+        return BadLikertJudgeAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
+    if name == STRATEGY_INDIRECT:
+        return IndirectAttacker(chat, max_rounds=max_rounds, judge_chat=judge_chat)
     known = ", ".join(DEEP_STRATEGIES)
     raise DeepError(f"unknown strategy: {name!r} (known: {known})")

@@ -16,11 +16,13 @@ from redgrade.constants import (
     DETECTOR_OOB_CALLBACK,
     SEVERITIES,
     TEMPLATE_OOB_URL,
+    TEMPLATE_TOOL_TASK,
 )
 from redgrade.detectors import DETECTORS
 from redgrade.families import FAMILY_BY_ID
 from redgrade.models import Attack
 from redgrade.mutations import MutationExpander
+from redgrade.tool_server import ToolOutput
 from redgrade.types import DetectorArgs
 
 
@@ -42,6 +44,15 @@ class PackLoader:
             if not isinstance(comp, dict) or not all(isinstance(v, list) for v in comp.values()):
                 raise PackError(f"{origin}: {attack_id}: compliance must map framework -> list of controls")
             extra["compliance"] = {str(k): tuple(str(x) for x in v) for k, v in comp.items()}
+        if "mutation" in raw:
+            extra["mutation"] = str(raw["mutation"])
+        if "utility" in raw and raw["utility"] is not None:
+            util = raw["utility"]
+            if not isinstance(util, dict) or "detector" not in util:
+                raise PackError(f"{origin}: {attack_id}: utility must be a mapping with a detector")
+            if str(util["detector"]) not in DETECTORS:
+                raise PackError(f"{origin}: {attack_id}: utility: unknown detector {util['detector']!r}")
+            extra["utility"] = dict(util)
         if "advisory" in raw:
             extra["advisory"] = bool(raw["advisory"])
         if "mutate_scope" in raw:
@@ -121,6 +132,39 @@ class PackLoader:
             raise PackError(f"{origin}: {attack_id}: requires_fetch needs fixtures")
         if (fixtures or uses_url) and not out["requires_oob"]:
             raise PackError(f"{origin}: {attack_id}: fixtures / {TEMPLATE_OOB_URL} need requires_oob")
+        return out
+
+    def _parse_tool_server(self, raw: dict[str, object], origin: str, attack_id: str) -> dict[str, object]:
+        """``tool_outputs`` plus ``requires_tool_server`` / ``requires_tool_call``, inferred when
+        not set: the server is needed for tool outputs or a ``{TOOL_TASK}`` prompt; a served
+        injection is needed when an output injects text."""
+        items = raw.get("tool_outputs")
+        if items is not None and (not isinstance(items, list) or not items):
+            raise PackError(f"{origin}: {attack_id}: tool_outputs must be a non-empty list")
+        outputs: list[ToolOutput] = []
+        for i, item in enumerate(items or []):
+            if not isinstance(item, dict):
+                raise PackError(f"{origin}: {attack_id}: tool output {i} must be a mapping")
+            try:
+                outputs.append(ToolOutput.model_validate(item))
+            except ValidationError as exc:
+                raise PackError(f"{origin}: {attack_id}: tool output {i}: {exc}") from exc
+        uses_task = TEMPLATE_TOOL_TASK in yaml.safe_dump(
+            {"p": raw.get("prompt"), "t": raw.get("turns")}, allow_unicode=True, width=10**9
+        )
+        needs = bool(outputs) or uses_task
+        out: dict[str, object] = {
+            "requires_tool_server": bool(raw.get("requires_tool_server", needs)),
+            "requires_tool_call": bool(raw.get("requires_tool_call", bool(outputs))),
+        }
+        if outputs:
+            out["tool_outputs"] = tuple(outputs)
+        if needs and not out["requires_tool_server"]:
+            raise PackError(
+                f"{origin}: {attack_id}: tool_outputs / {TEMPLATE_TOOL_TASK} need requires_tool_server"
+            )
+        if out["requires_tool_call"] and not outputs:
+            raise PackError(f"{origin}: {attack_id}: requires_tool_call needs tool_outputs")
         return out
 
     def _finalize(self, attacks: list[Attack]) -> list[Attack]:
@@ -214,6 +258,7 @@ class PackLoader:
                             "description": str(raw.get("description", "")),
                             **self._parse_history(raw, origin, str(raw.get("id", "?"))),
                             **self._parse_oob(raw, origin, str(raw.get("id", "?"))),
+                            **self._parse_tool_server(raw, origin, str(raw.get("id", "?"))),
                             **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
                     )
@@ -249,6 +294,7 @@ class PackLoader:
                             "description": str(raw.get("description", "")),
                             **self._parse_history(raw, origin, str(raw.get("id", "?"))),
                             **self._parse_oob(raw, origin, str(raw.get("id", "?"))),
+                            **self._parse_tool_server(raw, origin, str(raw.get("id", "?"))),
                             **self._pack_attack_fields(raw, origin, str(raw.get("id", "?"))),
                         }
                     )

@@ -355,6 +355,21 @@ _TEMPLATES: dict[str, Callable[[str], str]] = {
     "many_shot": _many_shot,
 }
 
+# ``a+b``: apply ``a``, then ``b`` (see ``mutate_template``).
+CHAIN_SEP = "+"
+MAX_CHAIN = 4
+# Chains people actually find effective (promptfoo ``layer``, PyRIT converter chains): a framing
+# step, then an encoding or obfuscation step that hides it from keyword filters.
+MUTATION_PRESETS_CHAINS: dict[str, tuple[str, ...]] = {
+    "layered": (
+        "policy_puppetry+b64",
+        "refusal_suppression+leetspeak",
+        "code_wrap+homoglyph",
+        "prefix_injection+rot13",
+        "many_shot+zw",
+    ),
+}
+
 # Back-compat name: kind -> template function.
 MUTATORS = _TEMPLATES
 
@@ -367,7 +382,14 @@ def _bon_seed(attack_id: str, index: int) -> int:
 
 
 def mutate_template(kind: str, text: str, *, seed: int = 0) -> str:
-    """Load-time half: wrapper text plus render-time markers (see module docstring)."""
+    """Load-time half: wrapper text plus render-time markers (see module docstring).
+
+    ``a+b`` chains mutations: ``a`` first, then ``b`` on the result (``policy_puppetry+b64``
+    wraps the request in a fake policy, then Base64-encodes the whole thing)."""
+    if CHAIN_SEP in kind:
+        for part in kind.split(CHAIN_SEP):
+            text = mutate_template(part, text, seed=seed)
+        return text
     if _BON_KIND_RE.match(kind) or kind == "bon":
         return _mark("scramble", text, seed)
     try:
@@ -384,7 +406,11 @@ def apply_mutation(kind: str, text: str, *, seed: int = 0) -> str:
 
 def available_mutations() -> dict[str, tuple[str, ...]]:
     """Mutation kinds and presets, for ``redgrade list`` and docs."""
-    return {"kinds": (*_TEMPLATES, "bon[:N]"), **{k: v for k, v in MUTATION_PRESETS.items()}}
+    return {
+        "kinds": (*_TEMPLATES, "bon[:N]", "a+b (chain)"),
+        **{k: v for k, v in MUTATION_PRESETS.items()},
+        **MUTATION_PRESETS_CHAINS,
+    }
 
 
 def _resolve_mutation_kinds(mutations: tuple[str, ...]) -> tuple[str, ...]:
@@ -406,6 +432,9 @@ def _resolve_mutation_kinds(mutations: tuple[str, ...]) -> tuple[str, ...]:
         elif token in MUTATION_PRESETS:
             for kind in MUTATION_PRESETS[token]:
                 add(kind)
+        elif token in MUTATION_PRESETS_CHAINS:
+            for kind in MUTATION_PRESETS_CHAINS[token]:
+                add(kind)
         elif (m := _BON_RE.match(token)) is not None:
             n = int(m.group(1)) if m.group(1) else DEFAULT_BON_VARIANTS
             if n < 1:
@@ -414,13 +443,22 @@ def _resolve_mutation_kinds(mutations: tuple[str, ...]) -> tuple[str, ...]:
                 add(f"bon{i}")
         elif token in _TEMPLATES:
             add(token)
+        elif CHAIN_SEP in token:
+            parts = token.split(CHAIN_SEP)
+            for part in parts:
+                if part not in _TEMPLATES and not _BON_KIND_RE.match(part):
+                    raise ValueError(f"unknown mutation kind in chain {token!r}: {part}")
+            if len(parts) > MAX_CHAIN:
+                raise ValueError(f"mutation chain {token!r} is longer than {MAX_CHAIN}")
+            add(token)
         else:
             raise ValueError(f"unknown mutation kind: {token}")
     return tuple(resolved)
 
 
 def _seed_for(attack_id: str, kind: str) -> int:
-    m = _BON_KIND_RE.match(kind)
+    bon = [p for p in kind.split(CHAIN_SEP) if _BON_KIND_RE.match(p)]
+    m = _BON_KIND_RE.match(bon[0]) if bon else None
     return _bon_seed(attack_id, int(m.group(1))) if m else 0
 
 
@@ -476,6 +514,13 @@ def _apply_scope(attack: Attack, kind: str, scope: MutateScope) -> dict[str, obj
 
     if scope in (MUTATE_SCOPE_TOOLS, MUTATE_SCOPE_ALL) and attack.tools:
         updates["tools"] = tuple(_mutate_tool(kind, t, seed) for t in attack.tools)
+
+    if mutate_document and attack.tool_outputs:
+        # Tool results are injected content, like documents: obfuscate what the tool returns.
+        updates["tool_outputs"] = tuple(
+            o.model_copy(update={"inject": _mutate_text(kind, o.inject, seed)}) if o.inject else o
+            for o in attack.tool_outputs
+        )
 
     if scope == MUTATE_SCOPE_FIXTURES and attack.fixtures:
         updates["fixtures"] = tuple(

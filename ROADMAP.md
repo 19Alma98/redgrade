@@ -42,6 +42,14 @@ Applications (2026).
 | 0.4 | Multi-chain / handoff injection (tool-handoff) | ASI01 | shipped (6 attacks) |
 | 0.4 | Jailbreak and harmful content (opt-in family; policy-bypass proxies) | LLM01 | shipped (7 attacks) |
 | 0.4 | Business integrity / policy abuse (opt-in + Acme example pack) | ASI / brand | shipped (5 + example) |
+| 0.5 | Tool server: Redgrade answers the agent's real tool calls (REST `/tools/<name>`, MCP `/mcp`), benign or proxied results poisoned per trial, observed calls, MCP description poisoning, `{TOOL_TASK}` binding, inconclusive-when-not-called | LLM01, ASI01, ASI02 | shipped (21 attacks) |
+| 0.5 | Utility under attack (`utility` checks, `expect:` on tools, `min_utility_under_attack` gate) | utility | shipped |
+| 0.5 | Task-aligned injection / disinformation (PIArena): rubric verdicts, conflicts flagged = resisted | LLM01, LLM09 | shipped (8 attacks) |
+| 0.5 | Poisoned skills and instruction files (SKILL.md, AGENTS.md, rules files, READMEs) | LLM01, ASI04 | shipped (6 attacks) |
+| 0.5 | Coding agents: terminal output, test sabotage, secret reads, sandbox escape, dependency confusion | LLM06, ASI02, ASI05 | shipped (6 attacks) |
+| 0.5 | Denial of wallet: tool loops, fan-out, token amplification (`tool_call_count`) | LLM10, ASI08 | shipped (5 attacks) |
+| 0.5 | InjecAgent import (`--preset injecagent`) | LLM01 | shipped |
+| later | AgentDojo / AgentDyn suites (need their tool environments behind the tool server) | LLM01 | planned |
 
 ## Scan (development) first
 
@@ -49,9 +57,10 @@ Applications (2026).
 - [x] Findings with surface, source, reproduction (input, canary, output) and a suggested fix per family
 - [x] Release verdict (`report.readiness(required_level)`): contiguous ladder, critical findings block, untested levels never count
 - [x] LiteLLM is a core dependency (lazy import: `check` never loads it); `scan:` block in `redgrade.yaml`
-- [ ] `replay`: re-run only the findings of a previous scan (static and adaptive) to confirm a fix
-- [ ] `promote`: move confirmed findings into the CI regression pack in one step
-- [ ] Stronger default attacker and a warning in the report when the attacker is too weak (or refuses)
+- [x] `replay`: re-run only the findings of a previous scan (static and adaptive) to confirm a fix
+- [x] `promote`: move confirmed findings into the CI regression pack in one step (`REG-` ids, merged)
+- [x] Attacker strength in the report: calibration on an offline reference target, refusal / invalid rates, weak-evidence verdict
+- [ ] Stronger default attacker (the default stays a local model so a scan runs offline)
 - [ ] Remediation per technique (not only per family), with links to the relevant OWASP guidance
 
 ## Cross-cutting
@@ -71,6 +80,9 @@ Applications (2026).
 - [x] `ci.output` (default) and `ci.agent` (tools surface) `check()` pipelines
 - [ ] Hallucination / overreliance and package-hallucination probes (need a judge or a curated fact set)
 - [ ] AutoDAN-Turbo-style strategy library that learns across runs
+- [x] `meta` (technique taxonomy with memory), `hydra` (branching multi-turn with lessons), `bad_likert_judge` and `indirect` (rewrite only the injected data) strategies
+- [x] Mutation chains (`policy_puppetry+b64`) and the `layered` preset; L4 mutations of tool outputs
+- [ ] Adaptive rewriting of tool outputs (strategies drive the tool server)
 - [x] LLM-judge detector for verdicts a regex cannot give (deep-only; CI stays deterministic)
 - [x] Per-attack baseline compare: "new successes vs `main`" as a gate (`redgrade baseline update`, `policy.baseline`)
 - [x] HTML, SARIF and JUnit reports; report JSON `schema_version: 2`

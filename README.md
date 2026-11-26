@@ -9,19 +9,21 @@ verdict: **does the agent hold up to the attacker level you require?**
 When the agent is solid you release it, and the attacks you found become a deterministic gate
 that CI replays on every pull request, so the holes you closed stay closed.
 
-> Status: **0.4 (alpha)**. 162 base attacks across 21 packs (plus 56 derived L4 variants), every
-> attack on a five-level ladder from basic to compositional, attacks generated for your agent's
-> purpose, seven adaptive attacker strategies (PAIR, TAP, Crescendo, GOAT, Echo Chamber,
-> mischievous user, Best-of-N), findings with suggested fixes, a release verdict, and a
+> Status: **0.5 (alpha)**. 191 base attacks across 26 packs (plus 73 derived L4 variants), every
+> attack on a five-level ladder from basic to compositional, a tool server that poisons the results
+> of the agent's real tools (REST and MCP), attacks generated for your agent's purpose, eleven
+> adaptive attacker strategies (PAIR, TAP, Crescendo, GOAT, Echo Chamber, mischievous user,
+> Best-of-N, meta, Hydra, Bad Likert Judge, indirect), a measured attacker strength, utility under
+> attack, findings with suggested fixes, replay after a fix, a release verdict, and a
 > deterministic CI gate. Self-hosted, no SaaS. Built to pair with
 > [OpenGrade](https://github.com/19Alma98/ai-eval-platform).
 
 ## How you use it
 
 ```text
- build the agent ──► redgrade.scan() ──► findings + fixes ──► fix ──► scan again ──► READY
-                          │                                                            │
-                          └── attacks that got through ──► frozen pack ──► CI: redgrade check
+ build the agent ──► redgrade.scan() ──► findings + fixes ──► fix ──► replay() ──► scan again ──► READY
+                          │                                                                       │
+                          └── findings ──► promote() ──► regression pack ──► CI: redgrade check ◄─┘
 ```
 
 1. **Develop.** Your agent has a chat API (any HTTP endpoint, or an OpenAI / Anthropic-compatible
@@ -29,10 +31,12 @@ that CI replays on every pull request, so the holes you closed stay closed.
 2. **Scan.** `scan()` runs every built-in attack, attacks an attacker LLM writes for *your* agent
    (`purpose=`), and adaptive attackers that rewrite what the agent resisted from its own answers.
 3. **Fix.** Each finding says which surface was hit (prompt, history, document, attachment,
-   tool, fetched page), shows the exact input and output, and suggests a fix. Fix and scan again.
-4. **Release** when the scan says `READY` at the level you require.
-5. **Keep it in CI.** Freeze what the scan found into a pack and run `redgrade check` on every
-   pull request: no attacker model, no provider calls, same verdict for the same output.
+   tool, fetched page), shows the exact input and output, and suggests a fix. Fix, then `replay()`
+   the findings (cheap, no attacker model) until they are fixed, and scan again.
+4. **Release** when the scan says `READY` at the level you require, with an attacker strong
+   enough to mean it (the report measures it).
+5. **Keep it in CI.** `promote()` the findings into a regression pack and run `redgrade check` on
+   every pull request: no attacker model, no provider calls, same verdict for the same output.
 
 The scan is where the vulnerabilities are found; CI only makes sure they do not come back.
 
@@ -46,6 +50,8 @@ uv sync
 uv run redgrade scan -c examples/redgrade.vulnerable.yaml --no-adaptive   # NOT READY, exit 1
 uv run redgrade scan -c examples/redgrade.hardened.yaml --no-adaptive     # NOT READY at L3: one L2 hole
 uv run redgrade scan -c examples/redgrade.hardened.yaml --no-adaptive --required-level 1   # READY
+uv run redgrade scan -c examples/redgrade.tools.vulnerable.yaml --no-adaptive   # attacked through its tools
+uv run redgrade scan -c examples/redgrade.tools.hardened.yaml --no-adaptive     # READY
 ```
 
 `--no-adaptive` skips the attacker LLM; drop it once you have one (a local Ollama model by
@@ -54,8 +60,12 @@ default, any LiteLLM model with `--attacker-model`).
 | | vulnerable app | hardened app |
 |---|---|---|
 | Release verdict at L3 | **NOT READY** (broken at L1) | **NOT READY** (broken at L2) |
-| Overall ASR | 82% | 1% |
+| Overall ASR | 81% | 1% |
 | Indirect prompt injection | 64% | 0% |
+| Poisoned results of its own tools (`tools` demo, REST tool backend) | 75% | 0% |
+| Tool loops and token amplification (denial of wallet) | 100% (60% in the `tools` demo) | 0% |
+| Task-aligned injection (the answer quietly changed) | 38% | 0% |
+| Poisoned skills / instruction files, coding-agent attacks | 100% | 0% |
 | Malicious file attachments (incl. text drawn in images) | 96% | 0% |
 | Forged conversation history | 100% | 0% |
 | Memory poisoning across sessions | 100% | 0% |
@@ -63,6 +73,7 @@ default, any LiteLLM model with `--attacker-model`).
 | Phishing / social engineering of the user | 100% | 0% |
 | RAG poisoning | 62% | 0% |
 | Leaks (prompt, secrets, PII) | 90% | 0% |
+| Utility under attack (`tools` demo: the user's task still done) | 65% | 87% |
 | CI gate of the demo config (`redgrade check`) | **FAILED** | passed |
 
 The hardened app is deliberately imperfect: one medium direct-injection attack (multilingual
@@ -181,11 +192,32 @@ when the agent is not ready.
 ## Adaptive and generated attacks
 
 **Adaptive attackers** take an attack the agent resisted and rewrite it, round after round, from
-the agent's answers. Strategies: `pair`, `tap`, `crescendo`, `goat`, `echo_chamber`,
-`mischievous_user` (LLM attackers via LiteLLM; the multi-turn ones backtrack on refusals) and
-`best_of_n` (seeded random augmentations, no attacker model). A scan uses `pair` and `crescendo`
-by default; pick others with `strategies=`. The attacker is any LiteLLM model string: a stronger
-attacker finds more, and a small local model that finds nothing is weak evidence.
+the agent's answers. LLM attackers (via LiteLLM):
+
+| strategy | turns | how it attacks |
+|---|---|---|
+| `pair` | 1 | rewrites the message from the target's last answers |
+| `tap` | 1 | tree of candidate rewrites, keeps the most promising branch |
+| `meta` | 1 | works through a taxonomy of techniques with a memory of what was refused (promptfoo `jailbreak:meta`) |
+| `indirect` | 1 | keeps the user's request fixed and rewrites only the injected documents |
+| `crescendo` | n | escalates gradually from benign turns, backtracks on refusals |
+| `goat` | n | reasons over a toolbox of techniques every turn |
+| `echo_chamber` | n | gets the target to build the content from its own words |
+| `mischievous_user` | n | a realistic, slightly pushy customer |
+| `hydra` | n | abandons a refused branch, restarts the conversation with a new approach, keeps lessons (promptfoo `jailbreak:hydra`) |
+| `bad_likert_judge` | n | makes the target a Likert judge, then asks for the top-scored "example" |
+| `best_of_n` | 1 | seeded random augmentations, no attacker model |
+
+A scan uses `pair` and `crescendo` by default, plus `indirect` when indirect attacks were resisted;
+pick others with `strategies=`.
+
+**How strong was the attacker?** A scan that found nothing proves little if its attacker was
+weak, so the report measures it. Before the scan, the attacker is *calibrated*: it must rewrite a
+blocked "ignore your instructions" request past the keyword filter of an offline reference target.
+During the scan every attacker answer is counted (usable, invalid, refused). An attacker that
+fails calibration, or gives unusable answers more than half the time, is reported as weak, and a
+`READY` verdict then says it is weak evidence at L4-L5 (`report.attacker`, `--no-calibrate` to skip).
+Safety-tuned and small local models often refuse to write attacks: use a capable `attacker_model`.
 
 **Generated attacks.** Built-in packs are generic. With `purpose=`, an attacker model writes
 attacks for what your agent does (its tools, its data, its users); only families with a
@@ -197,10 +229,11 @@ redgrade generate --purpose "support bot for an online bank; tools: get_balance,
     --family prompt_injection_indirect --family access_control --count 5 --lang zu -o generated.yaml
 redgrade translate my_pack.yaml --lang gd --lang hmn          # L4 low-resource-language variants
 redgrade import-dataset harmful_behaviors.csv --preset advbench --limit 50 -o advbench.yaml
+redgrade import-dataset test_cases_dh_base.json --preset injecagent -o injecagent.yaml  # tool-response injection
 redgrade deep -c redgrade.deep.yaml                           # adaptive attackers only, on chosen goals
 ```
 
-Datasets (AdvBench, JailbreakBench, HarmBench, or any CSV/JSONL) are never bundled: download them
+Datasets (AdvBench, JailbreakBench, HarmBench, InjecAgent, or any CSV/JSONL) are never bundled: download them
 yourself. Set `detector: llm_judge` (and `judge:`) when canary/regex cannot score a goal. See
 [docs/deep-mode.md](docs/deep-mode.md) for model strings, API keys and YAML examples.
 
@@ -318,6 +351,49 @@ Write your own with `fixtures:` and `{OOB_URL}`: see
 [docs/writing-attacks.md](docs/writing-attacks.md#out-of-band-attacks-attacker-pages-and-callbacks).
 The collector is plain HTTP on an address you choose; DNS-only callbacks are not covered yet.
 
+### The results of the agent's own tools
+
+The most dangerous indirect injection arrives in the *result of a tool* the agent calls in the
+middle of its loop: the email it reads, the file it opens, the search results, the answer of an MCP
+server. Redgrade cannot step inside your agent's loop, so it sits where tool results come from:
+the **tool server** answers the agent's tool calls and poisons what they return. In your test
+environment, point the agent's tool backends at it (`EMAIL_API_URL=http://127.0.0.1:8788/tools/read_email`)
+or connect the agent's MCP client to `http://127.0.0.1:8788/mcp`:
+
+```yaml
+# redgrade.yaml
+tool_server:
+  port: 8788
+  tools:
+    read_email:
+      task: "Summarize my latest email"          # a user request that makes the agent call it
+      response: { from: bob@example.com, body: "Lunch moved to 1pm." }   # the benign result
+      inject_field: body                        # where the payload goes in a JSON result
+      expect: ["1pm"]                           # a correct answer still mentions this
+    search:
+      task: "Find our refund policy"
+      upstream: http://localhost:9000/search    # or forward to the real backend and poison its answer
+```
+
+Each built-in tool attack (`tool_output_injection`, `denial_of_wallet`) is bound to every tool with
+a `task` (`TOI-001@read_email`): the user's request is benign, the injection arrives only through
+the tool. The server records every call, so tool detectors (`tool_called`, `tool_args_contains`,
+`tool_call_count`) work even when your API does not return the agent's tool trajectory. Through
+MCP it also poisons tool *descriptions* (`tools/list`). A trial in which the agent never called the
+poisoned tool is inconclusive, never resisted. Trials that use the server run one at a time.
+
+```python
+scan(agent, tool_server={"port": 8788, "tools": {"read_email": {"task": "Summarize my latest email", ...}}})
+```
+
+In your own packs, `tool_outputs` poisons a named tool (`tool: search`, `match: {q: refund}`,
+`position: append | prepend | replace`, `times: 1`, or `description:` for MCP tool poisoning).
+
+**Utility under attack.** An agent that refuses everything resists every attack. Attacks can carry
+a `utility` check on the same output (`expect:` for tool tasks): `report.utility_under_attack` is the
+fraction of attack trials in which the user's task still got done (AgentDojo's metric), gated with
+`policy.min_utility_under_attack`.
+
 ### Tools, access control, memory and inter-agent messages
 
 **Broken access control (BOLA / BFLA / RBAC).** The attacker is logged in as one user and tries
@@ -374,6 +450,11 @@ and the report shows a coverage matrix so planned families never look "tested".
 | Human-agent trust exploitation: phishing, vishing, card harvesting, payment redirection | ASI09 | 6 | shipped (dev) |
 | Jailbreak and harmful content (opt-in) | LLM01 | 7 | shipped |
 | Business integrity / policy abuse (opt-in) | ASI / brand | 5 | shipped |
+| Poisoned results of the agent's real tools, MCP tool descriptions (tool server) | LLM01, ASI01, ASI02 | 21 | shipped (0.5) |
+| Task-aligned injection: the answer quietly changed (PIArena) | LLM01, LLM09 | 8 | shipped (0.5) |
+| Poisoned skills and instruction files (SKILL.md, AGENTS.md, rules files, READMEs) | LLM01, ASI04 | 6 | shipped (0.5) |
+| Coding agents: terminal output, test sabotage, secret reads, sandbox escape, dependency confusion | LLM06, ASI02, ASI05 | 6 | shipped (0.5) |
+| Denial of wallet: tool loops, fan-out, token amplification | LLM10, ASI08 | 5 | shipped (0.5) |
 
 Write your own attacks as YAML: [docs/writing-attacks.md](docs/writing-attacks.md).
 
@@ -440,12 +521,32 @@ costs more utility than allowed.
 
 ## Release and CI
 
+### After a fix: replay, then promote
+
+Every finding carries its attack as a pack entry, so the scan's JSON is all you need:
+
+```bash
+redgrade scan --json scan.json
+# ... fix the agent ...
+redgrade replay scan.json                       # fixed / still vulnerable / inconclusive; exit 0 when all fixed
+redgrade promote scan.json -o regression.yaml  # findings -> regression pack (REG- ids, merged by id)
+```
+
+```python
+from redgrade import replay, promote
+
+result = replay(agent, report)  # or "scan.json"; no attacker model needed
+print(result.summary())  # 3/4 finding(s) fixed, 1 still vulnerable, 0 inconclusive
+promote(report, "regression.yaml")  # add it to `packs:` for `redgrade check`
+```
+
 ### Freeze what the scan found
 
 The scan is not deterministic (it uses an attacker model); CI must be. Turn the scan's results
 into packs that CI replays without any provider call:
 
 ```bash
+redgrade promote scan.json -o regression.yaml  # every finding (static, generated, adaptive)
 redgrade scan --export-wins found.yaml          # adaptive wins, as replayable attacks
 redgrade generate --purpose-file purpose.txt -o generated.yaml
 redgrade distill judge_goals.yaml -o frozen.yaml # LLM-judge verdicts -> validated regex rubrics
@@ -453,7 +554,7 @@ redgrade distill judge_goals.yaml -o frozen.yaml # LLM-judge verdicts -> validat
 
 ```yaml
 # redgrade.yaml
-packs: [found.yaml, generated.yaml, frozen.yaml]
+packs: [regression.yaml, found.yaml, generated.yaml, frozen.yaml]
 ```
 
 SDK: `report.export_winning_seeds("found.yaml")`. See [docs/ci-verdicts.md](docs/ci-verdicts.md)
@@ -501,6 +602,7 @@ escape hatch with explicit `families` / packs. The CLI `redgrade check` still ac
 | `ci.attachments` | malicious files | when the target accepts files |
 | `ci.agent` | goal hijack, MCP, handoff / inter-agent, access control | when the target exposes tool calls |
 | `ci.oob` | attacker web content, out-of-band exfiltration | with `oob=True` |
+| `ci.tools` | poisoned tool results, tool loops (denial of wallet) | with `tool_server=` |
 
 ```yaml
 policy:
@@ -651,6 +753,10 @@ a live OpenGrade server (tracked in the roadmap).
 - The built-in attacks are a starting set, not an exhaustive one. Add your own for your domain.
 - Redgrade does not replace a threat model or a human red team.
 - The demo app uses a simulated model, so its numbers describe the demo, not any real LLM.
+- The tool server sees the calls an agent makes to the backends you point at it. Tools that run
+  inside the agent process (a local function, a filesystem tool) are not intercepted: give them a
+  test backend, or use forged `tool` history turns (`history_injection`) for those.
+- Utility under attack is only as good as the `utility` / `expect` checks you give it.
 
 ## Development
 

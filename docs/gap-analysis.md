@@ -9,6 +9,9 @@ in sviluppo; la CI è la guardia.
 (Confident AI, ora `deepeval.red_team`), PIArena (ACL 2026), più la letteratura 2025-2026 sugli
 attacchi adattivi agli agenti (AgentDojo/AutoDojo, "The Attacker Moves Second", Skill-Inject).
 
+> **Aggiornamento 0.5.** Fatti i punti 2-5 della sequenza proposta (il punto 1, `scan()` su un
+> callable Python, è rimandato: per ora il target resta l'endpoint dell'agente). Vedi la sezione 6.
+
 ---
 
 ## 1. Verdetto sintetico
@@ -205,3 +208,17 @@ da 3.3 per le parti agentiche.
 - Adaptive Attacks Break Defenses Against IPI: <https://arxiv.org/pdf/2503.00061>
 - Skill-Inject: <https://arxiv.org/abs/2602.20156>
 - SkillBloat: <https://arxiv.org/pdf/2608.21929>
+
+## 6. Stato dopo la 0.5
+
+| punto | cosa è stato fatto |
+|---|---|
+| 3.3 Interposizione sui tool | **Tool server** (`redgrade.tool_server`): backend REST (`/tools/<name>`) e server MCP (`/mcp`) che rispondono alle chiamate dei tool reali dell'agente con un risultato benigno o con quello del backend vero (`upstream`), avvelenato per trial; registra le chiamate (detector dei tool senza `tools_path`); avvelena le descrizioni MCP; trial inconcludente se il tool avvelenato non viene chiamato. Funziona con agenti dietro endpoint: basta puntare i backend dei tool al server in ambiente di test. Famiglie `tool_output_injection` e `denial_of_wallet`. |
+| 3.3 Utilità sotto attacco | Campo `utility` sugli attacchi, `expect` sui tool, `report.utility_under_attack`, gate `min_utility_under_attack`. |
+| 3.9 Benchmark | Import InjecAgent (`--preset injecagent`). AgentDojo/AgentDyn restano da fare: servono i loro ambienti di tool dietro il tool server. |
+| 3.4 Forza dell'attaccante | Calibrazione su un target di riferimento offline, conteggio di risposte inutilizzabili e rifiuti, verdetto "READY ma prova debole" (`report.attacker`). Il default resta un modello locale. |
+| 3.5 `replay` / `promote` | `replay()` / `redgrade replay` (fixed / still vulnerable / inconclusive), `promote()` / `redgrade promote` (pack di regressione con id `REG-`). Ogni finding porta l'attacco come voce di pack (`attack_spec`). |
+| 3.6 Strategie | `meta`, `hydra`, `bad_likert_judge`, `indirect` (riscrive solo i documenti iniettati). Manca la riscrittura adattiva degli output dei tool e la libreria di strategie che apprende tra run. |
+| 3.7 Composizione | Catene `a+b` e preset `layered`; le mutazioni L4 coprono anche gli output dei tool. |
+| 3.8 Famiglie | `task_aligned_injection`, `instruction_file_poisoning`, `coding_agent`, `denial_of_wallet`, `tool_output_injection`. Restano: allucinazioni, tassonomia completa dei contenuti dannosi, computer-use, A2A esteso. |
+| P2 | Non fatti: audio/xlsx/pptx, punteggio di rischio per finding, budget e checkpoint. |

@@ -375,7 +375,7 @@ def test_deep_client_explains_missing_litellm(monkeypatch):
 def test_version_has_a_single_source():
     import redgrade
 
-    assert redgrade.__version__ == "0.4.0"
+    assert redgrade.__version__ == "0.5.0"
 
 
 def test_png_pixel_modes_draw_text_and_expose_it_as_ocr_text():

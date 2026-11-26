@@ -26,12 +26,14 @@ from redgrade.models import (
 from redgrade.oob import Fixture, OobServer
 from redgrade.plugins import load_plugins
 from redgrade.policy import Policy, evaluate_policy
+from redgrade.replay import ReplayReport, promote, replay
 from redgrade.runner import RunConfig, run_attacks
 from redgrade.scan import scan
 from redgrade.sdk import AttackError, AttackReport, attack, check
 from redgrade.targets import ChatTarget, HttpTarget
+from redgrade.tool_server import ToolOutput, ToolServer, ToolServerConfig, ToolSpec
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "Attachment",
@@ -54,10 +56,15 @@ __all__ = [
     "OobServer",
     "Policy",
     "Readiness",
+    "ReplayReport",
     "RunConfig",
     "RunResult",
     "TargetObservation",
     "ToolCall",
+    "ToolOutput",
+    "ToolServer",
+    "ToolServerConfig",
+    "ToolSpec",
     "Trial",
     "Waiver",
     "attack",
@@ -71,6 +78,8 @@ __all__ = [
     "register_detector",
     "unregister_detector",
     "load_attacks",
+    "promote",
+    "replay",
     "run_attacks",
     "scan",
 ]
