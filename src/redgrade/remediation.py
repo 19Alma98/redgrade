@@ -82,6 +82,30 @@ REMEDIATION: dict[str, str] = {
         "Ground claims and actions in verified data, show sources, and require explicit user "
         "confirmation before actions the user did not ask for."
     ),
+    "tool_output_injection": (
+        "Treat every tool result as untrusted data: return typed, structured fields instead of free text, "
+        "mark tool output as data (spotlighting), and after a tool result is read only allow the tools "
+        "the user's task needs (plan first, then execute; no new destinations from tool content)."
+    ),
+    "task_aligned_injection": (
+        "Do not let content correct itself: when a document contains notes 'for the AI' or 'corrected' "
+        "values, quote the source values and flag the conflict to the user instead of picking one; cross-"
+        "check numbers against structured data and cite where each claim comes from."
+    ),
+    "instruction_file_poisoning": (
+        "Load skills and instruction files only from trusted, pinned sources; review them like code (hash "
+        "and alert on change), never run helper scripts or install commands they ask for without "
+        "confirmation, and keep repository files (READMEs, rules files) out of the instruction channel."
+    ),
+    "coding_agent": (
+        "Run the agent in a sandbox without secrets in the environment, treat terminal and test output as "
+        "data, require review for changes to tests, CI and config, and block network egress and reads of "
+        "credential files (.env, ~/.ssh, cloud credentials)."
+    ),
+    "denial_of_wallet": (
+        "Cap each request: maximum tool calls, loop iterations and tokens per turn, a time budget, and "
+        "detection of repeated identical calls; never let tool content decide how many more calls to make."
+    ),
     "jailbreak": (
         "Add a dedicated harmful-content classifier on input and output (the model's own refusal is not "
         "enough), and evaluate the conversation as a whole for role-play and fiction framings."

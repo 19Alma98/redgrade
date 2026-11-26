@@ -8,6 +8,7 @@ from redgrade.constants import (
     PIPELINE_CI_OOB,
     PIPELINE_CI_OUTPUT,
     PIPELINE_CI_PI,
+    PIPELINE_CI_TOOLS,
     PIPELINE_CI_UTILITY,
     PIPELINE_LAB_ADAPTIVE,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "PIPELINE_CI_OOB",
     "PIPELINE_CI_OUTPUT",
     "PIPELINE_CI_PI",
+    "PIPELINE_CI_TOOLS",
     "PIPELINE_CI_UTILITY",
     "PIPELINE_LAB_ADAPTIVE",
     "PipelineSpec",
@@ -45,6 +47,8 @@ _REGISTRY: dict[str, PipelineSpec] = {
             "multi_turn",
             "history_injection",
             "memory_poisoning",
+            "task_aligned_injection",
+            "instruction_file_poisoning",
         ),
     ),
     PIPELINE_CI_DISCLOSURE: PipelineSpec(
@@ -66,7 +70,12 @@ _REGISTRY: dict[str, PipelineSpec] = {
             "mcp_attacks",
             "agent_handoff",
             "access_control",
+            "coding_agent",
         ),
+    ),
+    PIPELINE_CI_TOOLS: PipelineSpec(
+        id=PIPELINE_CI_TOOLS,
+        families=("tool_output_injection", "denial_of_wallet"),
     ),
     PIPELINE_CI_OOB: PipelineSpec(
         id=PIPELINE_CI_OOB,

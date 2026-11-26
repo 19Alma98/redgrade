@@ -27,6 +27,15 @@ from redgrade.constants import (
     DEFAULT_DEEP_STRATEGIES,
     FAMILY_TASK_UTILITY,
     SEVERITIES,
+    STRATEGY_INDIRECT,
+)
+from redgrade.deep.strength import (
+    CALIBRATION_ROUNDS,
+    AttackerAssessment,
+    AttackerMonitor,
+    CalibrationResult,
+    assess_attacker,
+    calibrate_attacker,
 )
 from redgrade.extensions import as_judge
 from redgrade.findings import DEFAULT_REQUIRED_LEVEL, Source
@@ -37,7 +46,14 @@ from redgrade.models import Attack, AttackResult, RunResult
 from redgrade.oob import OobServer
 from redgrade.policy import Policy, evaluate_policy, passed
 from redgrade.runner import RunConfig, run_attacks
-from redgrade.sdk import AttackError, AttackReport, _build_report, oob_collector
+from redgrade.sdk import (
+    AttackError,
+    AttackReport,
+    ToolServerArg,
+    _build_report,
+    oob_collector,
+    tool_collector,
+)
 from redgrade.targets import HttpTarget, Target
 
 DEFAULT_ADAPTIVE_SEEDS = 8
@@ -153,6 +169,8 @@ def run_scan(
     judge_cache: str | Path | JudgeCache | None = None,
     on_result: Callable[[AttackResult], None] | None = None,
     on_phase: Phase | None = None,
+    tool_server: ToolServerArg = None,
+    calibrate: bool = True,
 ) -> AttackReport:
     """Engine behind ``scan()`` and ``redgrade scan``; accepts any ``Target`` (function targets
     included, for offline demos and tests)."""
@@ -176,6 +194,16 @@ def run_scan(
         scorer_src = chat  # the attacker model also judges llm_judge attacks
     scorer = as_judge(scorer_src, judge_cache)
 
+    # 0. How strong is the attacker? Count its usable answers; calibrate it on a reference target.
+    monitor: AttackerMonitor | None = None
+    calibration: CalibrationResult | None = None
+    if chat is not None:
+        if calibrate and adaptive:
+            say("calibrating the attacker on the built-in reference target")
+            calibration = calibrate_attacker(chat, max_rounds=max(max_rounds, CALIBRATION_ROUNDS))
+        monitor = AttackerMonitor(chat)
+        chat = monitor
+
     # 1. Built-in attacks (+ 2. generated ones).
     attacks = load_attacks(extra_packs=packs, families=families, include_opt_in=include_opt_in)
     if purpose:
@@ -196,8 +224,12 @@ def run_scan(
         raise AttackError("no attacks selected")
 
     say(f"running {len(attacks)} attacks x {run_config.trials} trials")
-    with oob_collector(oob) as server:
-        static = run_attacks(attacks, target, run_config, on_result=on_result, oob=server, judge=scorer)
+    with oob_collector(oob) as server, tool_collector(tool_server) as tools:
+        if tools is not None:
+            say(f"tool server at {tools.base_url} (REST: /tools/<name>, MCP: /mcp)")
+        static = run_attacks(
+            attacks, target, run_config, on_result=on_result, oob=server, judge=scorer, tools=tools
+        )
     if scorer is not None and scorer.cache is not None:
         scorer.cache.save()
     results = list(static.results)
@@ -211,6 +243,9 @@ def run_scan(
         seeds = pick_seeds(results, adaptive_seeds)
         if seeds or goals:
             strat = list(strategies) if strategies else list(DEFAULT_DEEP_STRATEGIES)
+            if not strategies and any(a.document or a.documents for a in seeds):
+                # Indirect seeds: rewrite the injected data, not the user's request.
+                strat.append(STRATEGY_INDIRECT)
             n_goals = len(goals or [])
             say(f"adaptive attackers ({', '.join(strat)}) on {len(seeds)} seed(s) + {n_goals} goal(s)")
             try:
@@ -255,6 +290,19 @@ def run_scan(
 
     run = RunResult(results=results, trials_per_attack=run_config.trials)
     notes += _skipped_notes(run)
+    assessment: AttackerAssessment | None = None
+    if monitor is not None:
+        assessment = assess_attacker(
+            model_label,
+            monitor.stats,
+            calibration,
+            default_model=attacker_model is None and attacker_chat is None,
+        )
+        if assessment.default_model:
+            notes.append(
+                f"the attacker is the default local model ({DEFAULT_ATTACKER_MODEL}): pass a stronger "
+                "attacker_model before trusting a READY verdict at L4-L5"
+            )
     user_policy = policy is not None
     # Without a policy the readiness verdict is the gate; the checks are shown for information.
     effective = policy or Policy(max_asr=1.0, max_asr_by_severity={})
@@ -270,6 +318,7 @@ def run_scan(
             "required_level": required_level,
             "attack_sources": sources,
             "notes": notes,
+            "attacker": assessment,
         }
     )
     ready = report.readiness().ready
@@ -306,6 +355,8 @@ def scan(
     judge_api_base: str | None = None,
     judge_cache: str | Path | JudgeCache | None = None,
     on_result: Callable[[AttackResult], None] | None = None,
+    tool_server: ToolServerArg = None,
+    calibrate: bool = True,
 ) -> AttackReport:
     """Attack the agent's chat API before release and return what got through.
 
@@ -358,6 +409,8 @@ def scan(
         judge_api_base=judge_api_base,
         judge_cache=judge_cache,
         on_result=on_result,
+        tool_server=tool_server,
+        calibrate=calibrate,
     )
 
 

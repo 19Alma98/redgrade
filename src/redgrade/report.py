@@ -23,7 +23,14 @@ from redgrade.models import AttackResult, RunResult
 from redgrade.policy import Check, Policy, passed
 from redgrade.scoring import PiPosture, PiScorer, evasion_stats
 from redgrade.types import AttackSummary, CheckDict, FamilyStat, JsonValue, PiPostureDict, ReportDict
-from redgrade.utility import advisory_results, attack_results, gated_results, is_advisory, utility_rate
+from redgrade.utility import (
+    advisory_results,
+    attack_results,
+    gated_results,
+    is_advisory,
+    utility_rate,
+    utility_under_attack,
+)
 
 _SEVERITY_ORDER = {
     SEVERITY_CRITICAL: 0,
@@ -182,6 +189,7 @@ class ReportBuilder:
             "pi_posture": self._posture_dict(posture),
             "security_level": cast(dict[str, JsonValue], self._level_posture(run, policy).to_dict()),
             "utility_overall": utility_rate(run),
+            "utility_under_attack": utility_under_attack(run),
             "evasion": evasion_stats(run),
             "compliance": cast(dict[str, JsonValue], build_compliance(run).to_dict()),
         }
@@ -200,12 +208,17 @@ class ReportBuilder:
         util = utility_rate(run)
         if util is not None:
             lines.append(f"Utility: {_pct(util)} (min gate applies when probes ran).")
+        uua = utility_under_attack(run)
+        if uua is not None:
+            lines.append(
+                f"Utility under attack: {_pct(uua)} of the attack trials still completed the user's task."
+            )
         lines += ["", "## Gate", "", "| check | value | limit | |", "|---|---|---|---|"]
         for c in checks:
             mark = "ok" if c.passed else "**FAIL**"
             if c.name.startswith("coverage."):
                 lines.append(f"| {c.name} | {int(c.value)} attack(s) ran | >= 1 | {mark} |")
-            elif c.name.startswith("utility."):
+            elif c.name.startswith("utility."):  # utility.overall, utility.under_attack
                 lines.append(f"| {c.name} | {_pct(c.value)} | >= {_pct(c.limit)} | {mark} |")
             elif c.name.startswith("compliance."):
                 lines.append(f"| {c.name} | {int(c.value)} control(s) not run | 0 | {mark} |")

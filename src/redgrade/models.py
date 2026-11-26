@@ -5,6 +5,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from redgrade.attachments import AttachmentSpec
+from redgrade.calls import ToolCall
 from redgrade.constants import (
     DELIVERY_DIRECT,
     DETECT_ON_LAST,
@@ -16,6 +17,7 @@ from redgrade.constants import (
     Severity,
 )
 from redgrade.oob import Fixture, OobHit
+from redgrade.tool_server import ToolOutput
 from redgrade.types import DetectorArgs, HistoryRole, JsonValue
 
 __all__ = [
@@ -29,16 +31,6 @@ __all__ = [
     "ToolCall",
     "Trial",
 ]
-
-
-class ToolCall(BaseModel):
-    """One tool invocation observed from the app under test."""
-
-    model_config = ConfigDict(frozen=True)
-
-    name: str
-    arguments: dict[str, JsonValue] = Field(default_factory=dict)
-    id: str = ""
 
 
 class TargetObservation(BaseModel):
@@ -115,6 +107,14 @@ class Attack(BaseModel):
     (see ``redgrade.oob``). ``requires_oob`` skips the attack when no collector runs;
     ``requires_fetch`` turns a trial where the target never fetched any fixture into an error
     (inconclusive), because the injection never reached it.
+
+    ``tool_outputs`` poison the results of the agent's real tools, served by the tool server (see
+    ``redgrade.tool_server``). ``requires_tool_server`` skips the attack when no server runs;
+    ``requires_tool_call`` turns a trial where no poisoned result was served into an error. A
+    prompt with ``{TOOL_TASK}`` is bound to each tool that has a ``task`` (one variant per tool).
+
+    ``utility`` checks, on the same output, that the user's task still got done while under attack
+    (``{"detector": "contains", "args": {"patterns": [...]}}``): utility under attack.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -136,6 +136,9 @@ class Attack(BaseModel):
     fixtures: tuple[Fixture, ...] = ()
     requires_oob: bool = False
     requires_fetch: bool = False
+    tool_outputs: tuple[ToolOutput, ...] = ()
+    requires_tool_server: bool = False
+    requires_tool_call: bool = False
     detect_on: DetectOn = DETECT_ON_LAST
     detector_args: DetectorArgs = Field(default_factory=dict)
     requires_secrets: bool = False
@@ -153,6 +156,7 @@ class Attack(BaseModel):
     # Extra framework controls for this attack, on top of its family's (see redgrade.compliance),
     # e.g. {"mitre_atlas": ["AML.T0054"]}.
     compliance: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    utility: dict[str, JsonValue] | None = None
 
     @property
     def has_attachments(self) -> bool:
@@ -190,6 +194,8 @@ class Trial(BaseModel):
     latency_s: float = 0.0
     canary: str = ""
     oob_hits: list[OobHit] = Field(default_factory=list)
+    # Utility under attack: did the user's task still get done? (None: the attack has no check)
+    task_completed: bool | None = None
 
 
 class AttackResult(BaseModel):

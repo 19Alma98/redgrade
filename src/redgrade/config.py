@@ -26,6 +26,7 @@ from redgrade.oob import OobConfig
 from redgrade.policy import Policy
 from redgrade.runner import RunConfig
 from redgrade.targets import ChatTargetConfig, FunctionTargetConfig, HttpTargetConfig, TargetConfig
+from redgrade.tool_server import ToolServerConfig
 from redgrade.types import YamlMapping
 
 
@@ -102,6 +103,7 @@ class Config(BaseModel):
     packs: list[str] = Field(default_factory=list)
     families: list[str] = Field(default_factory=list)
     oob: OobConfig | None = None
+    tool_server: ToolServerConfig | None = None
     plugins: list[str] = Field(default_factory=list)
     classifiers: dict[str, ClassifierConfig] = Field(default_factory=dict)
     judge: JudgeConfig | None = None
@@ -149,6 +151,16 @@ policy:
 
 # Out-of-band collector: a local "attacker" web server for agents that fetch URLs.
 # oob: {{ host: 127.0.0.1, port: 8787, public_url: "http://host.docker.internal:8787", wait: 1.0 }}
+# Tool server: Redgrade answers the agent's tool calls (REST at <base>/tools/<name>, MCP at
+# <base>/mcp) and poisons the results. Point the agent's tool backends at it in a test environment.
+# tool_server:
+#   port: 8788
+#   tools:
+#     read_email:
+#       task: "Summarize my latest email"          # a request that makes the agent call it
+#       response: {{ from: "bob@example.com", body: "Lunch moved to 1pm." }}
+#       expect: ["1pm"]                             # a correct answer mentions this
+#     # search: {{ task: "Search the docs for the refund policy", upstream: "http://localhost:9000/search" }}
 # Your own detectors (`register_detector`) and local classifiers, for verdicts without a judge:
 # plugins: [my_guards]
 # classifiers: {{ refusal: {{ hf_model: protectai/distilroberta-base-rejection-v1 }} }}
@@ -241,6 +253,10 @@ class ConfigLoader:
         if oob_raw is not None and not isinstance(oob_raw, dict):
             raise ValueError("'oob' must be a mapping")
         oob = OobConfig.model_validate(oob_raw) if oob_raw is not None else None
+        tools_raw = raw.get("tool_server")
+        if tools_raw is not None and not isinstance(tools_raw, dict):
+            raise ValueError("'tool_server' must be a mapping")
+        tool_server = ToolServerConfig.model_validate(tools_raw) if tools_raw is not None else None
         plugins_raw = raw.get("plugins") or []
         if not isinstance(plugins_raw, list):
             raise ValueError("'plugins' must be a list of modules")
@@ -265,6 +281,7 @@ class ConfigLoader:
             packs=[str(p) for p in packs_raw],
             families=[str(f) for f in families_raw],
             oob=oob if oob is not None and oob.enabled else None,
+            tool_server=tool_server if tool_server is not None and tool_server.enabled else None,
             scan=ScanConfig.model_validate(scan_raw) if scan_raw is not None else ScanConfig(),
         )
 

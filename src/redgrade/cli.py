@@ -35,6 +35,7 @@ from redgrade.render import render_attack, render_history, render_turns
 from redgrade.runner import new_canary
 from redgrade.sdk import AttackError, run_pipeline
 from redgrade.targets import TargetError, build_target
+from redgrade.tool_server import ToolServer
 from redgrade.utility import attack_results
 
 
@@ -112,6 +113,20 @@ def _collector(config: Config) -> Iterator[OobServer | None]:
         yield server
 
 
+@contextmanager
+def _tools(config: Config) -> Iterator[ToolServer | None]:
+    """Start the tool server when ``redgrade.yaml`` has a ``tool_server:`` block."""
+    if config.tool_server is None:
+        yield None
+        return
+    with ToolServer.from_config(config.tool_server) as server:
+        print(
+            f"tool server listening at {server.base_url} (REST: /tools/<name>, MCP: {server.mcp_url})",
+            file=sys.stderr,
+        )
+        yield server
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     families = args.family or config.families
@@ -120,7 +135,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     try:
         judge = prepare_extensions(config)
         target = build_target(config.target)
-        with _collector(config) as oob:
+        with _collector(config) as oob, _tools(config) as tools:
             report = run_pipeline(
                 target,
                 judge=judge,
@@ -131,6 +146,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 on_result=_progress,
                 baseline=args.baseline,
                 oob=oob,
+                tool_server=tools,
             )
     except (AttackError, PluginError, JudgeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
@@ -167,7 +183,7 @@ def _cmd_baseline_update(args: argparse.Namespace) -> int:
     try:
         judge = prepare_extensions(config)
         target = build_target(config.target)
-        with _collector(config) as oob:
+        with _collector(config) as oob, _tools(config) as tools:
             report = run_pipeline(
                 target,
                 judge=judge,
@@ -177,6 +193,7 @@ def _cmd_baseline_update(args: argparse.Namespace) -> int:
                 run_config=config.run,
                 on_result=_progress,
                 oob=oob,
+                tool_server=tools,
             )
     except (AttackError, PluginError, JudgeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
@@ -211,7 +228,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     try:
         judge = prepare_extensions(config)
         target = build_target(config.target)
-        with _collector(config) as oob:
+        with _collector(config) as oob, _tools(config) as tools:
             report = run_scan(
                 target,
                 purpose=purpose,
@@ -232,6 +249,8 @@ def _cmd_scan(args: argparse.Namespace) -> int:
                 judge=judge,
                 on_result=_progress,
                 on_phase=lambda msg: print(f"scan: {msg}", file=sys.stderr),
+                tool_server=tools,
+                calibrate=not args.no_calibrate,
             )
     except (AttackError, PluginError, JudgeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
@@ -249,6 +268,50 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         n = report.export_winning_seeds(args.export_wins)
         print(f"wrote {n} adaptive win(s) to {args.export_wins}: add it to `packs:` for CI", file=sys.stderr)
     return 0 if report.passed else 1
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    """Re-run the findings of a scan report (after a fix) and say which ones are fixed."""
+    from redgrade.replay import replay
+
+    config = load_config(args.config)
+    try:
+        judge = prepare_extensions(config)
+        target = build_target(config.target)
+        with _collector(config) as oob, _tools(config) as tools:
+            result = replay(
+                target,
+                args.report_json,
+                ids=args.only or None,
+                trials=args.trials or config.run.trials,
+                run_config=config.run,
+                oob=oob,
+                tool_server=tools,
+                judge=judge,
+                on_result=_progress,
+            )
+    except (AttackError, PluginError, JudgeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    md = result.to_markdown()
+    print(md)
+    if args.report:
+        Path(args.report).write_text(md, encoding="utf-8")
+    print(result.summary(), file=sys.stderr)
+    return 0 if result.all_fixed else 1
+
+
+def _cmd_promote(args: argparse.Namespace) -> int:
+    """Freeze the findings of a scan report into a regression pack for CI."""
+    from redgrade.replay import promote
+
+    try:
+        n = promote(args.report_json, args.out, ids=args.only or None, include_advisory=args.include_advisory)
+    except (AttackError, PackError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(f"{args.out} now holds {n} attack(s): add it to `packs:` for `redgrade check`", file=sys.stderr)
+    return 0
 
 
 def _cmd_deep(args: argparse.Namespace) -> int:
@@ -475,24 +538,34 @@ def _cmd_translate(args: argparse.Namespace) -> int:
 
 def _cmd_import_dataset(args: argparse.Namespace) -> int:
     """Convert a dataset file (AdvBench, HarmBench, JailbreakBench, CSV / JSONL) into a pack."""
-    from redgrade.datasets import DatasetError, import_dataset
+    from redgrade.datasets import DatasetError, import_dataset, import_injecagent
     from redgrade.packio import write_pack
 
     try:
-        attacks = import_dataset(
-            args.dataset,
-            preset=args.preset,
-            prompt_field=args.prompt_field,
-            document_field=args.document_field,
-            id_field=args.id_field,
-            target_field=args.target_field,
-            family=args.family,
-            detector=args.detector,
-            severity=args.severity,
-            level=args.level,
-            id_prefix=args.id_prefix,
-            limit=args.limit,
-        )
+        if args.preset == "injecagent":
+            attacks = [
+                {**a, "family": "tool_output_injection"}
+                for a in import_injecagent(
+                    args.dataset,
+                    limit=args.limit,
+                    id_prefix="INJECAGENT" if args.id_prefix == "DS" else args.id_prefix,
+                )
+            ]
+        else:
+            attacks = import_dataset(
+                args.dataset,
+                preset=args.preset,
+                prompt_field=args.prompt_field,
+                document_field=args.document_field,
+                id_field=args.id_field,
+                target_field=args.target_field,
+                family=args.family,
+                detector=args.detector,
+                severity=args.severity,
+                level=args.level,
+                id_prefix=args.id_prefix,
+                limit=args.limit,
+            )
     except DatasetError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -600,8 +673,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", help="write the JSON report (findings, readiness) to this file")
     p.add_argument("--html", help="write a self-contained HTML report")
     p.add_argument("--export-wins", metavar="PATH", help="write the adaptive wins as a pack for CI")
+    p.add_argument("--no-calibrate", action="store_true", help="skip the attacker calibration")
     p.add_argument("--no-output", action="store_true", help="leave the agent's output out of the reports")
     p.set_defaults(func=_cmd_scan)
+
+    p = sub.add_parser(
+        "replay", help="after a fix: re-run the findings of a scan and say which ones are fixed"
+    )
+    p.add_argument("report_json", help="scan JSON report (`redgrade scan --json scan.json`)")
+    p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH)
+    p.add_argument("--only", action="append", help="only this finding id (repeatable)")
+    p.add_argument("--trials", type=int, help="trials per finding (default: run.trials)")
+    p.add_argument("--report", help="write the Markdown replay report to this file")
+    p.set_defaults(func=_cmd_replay)
+
+    p = sub.add_parser("promote", help="freeze the findings of a scan into a regression pack for CI")
+    p.add_argument("report_json", help="scan JSON report (`redgrade scan --json scan.json`)")
+    p.add_argument("--out", "-o", required=True, help="regression pack YAML (merged if it exists)")
+    p.add_argument("--only", action="append", help="only this finding id (repeatable)")
+    p.add_argument("--include-advisory", action="store_true", help="also promote advisory findings")
+    p.set_defaults(func=_cmd_promote)
 
     p = sub.add_parser("run", help="CI: replay the deterministic attacks and apply the gate")
     p.add_argument("--config", "-c", default=DEFAULT_CONFIG_PATH)
@@ -733,7 +824,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("import-dataset", help="convert a red-teaming dataset (CSV / JSONL) into a pack")
     p.add_argument("dataset", help="dataset file (.csv, .tsv, .jsonl, .json)")
-    p.add_argument("--preset", choices=["advbench", "jailbreakbench", "harmbench"])
+    p.add_argument("--preset", choices=["advbench", "jailbreakbench", "harmbench", "injecagent"])
     p.add_argument("--prompt-field", help="column with the attack prompt")
     p.add_argument("--document-field", help="column with context passed as a document")
     p.add_argument("--id-field", help="column with a stable id")

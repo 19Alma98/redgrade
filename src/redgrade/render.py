@@ -12,6 +12,7 @@ from redgrade.identity import expand_identity
 from redgrade.models import Attack, AttackTurn
 from redgrade.mutations import materialize
 from redgrade.oob import Fixture, current_oob_base
+from redgrade.tool_server import ToolOutput
 from redgrade.types import HistoryMessage, HistoryToolCall, JsonValue
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "render_attack",
     "render_fixtures",
     "render_history",
+    "render_tool_outputs",
     "render_tools",
     "render_turns",
 ]
@@ -108,6 +110,19 @@ def render_attack(attack: Attack, canary: str) -> tuple[str, list[str]]:
 def render_fixtures(attack: Attack, canary: str) -> list[Fixture]:
     """Attacker pages for one trial, with ``{OOB_URL}`` / ``{CANARY}`` rendered in their body."""
     return [f.model_copy(update={"body": render(f.body, canary)}) for f in attack.fixtures]
+
+
+def render_tool_outputs(attack: Attack, canary: str) -> list[ToolOutput]:
+    """Tool-result injections for one trial, with ``{CANARY}`` / ``{OOB_URL}`` / encodings rendered."""
+    return [
+        o.model_copy(
+            update={
+                "inject": render(o.inject, canary) if o.inject else "",
+                "description": render(o.description, canary) if o.description is not None else None,
+            }
+        )
+        for o in attack.tool_outputs
+    ]
 
 
 def render_attachments(specs: tuple[AttachmentSpec, ...], canary: str) -> list[Attachment]:

@@ -57,6 +57,7 @@ DETECTOR_ACCESS_VIOLATION: Final = "access_violation"
 DETECTOR_REFUSAL: Final = "refusal"
 DETECTOR_RUBRIC: Final = "rubric"
 DETECTOR_CLASSIFIER: Final = "classifier"
+DETECTOR_TOOL_CALL_COUNT: Final = "tool_call_count"
 
 # How much a detector's verdict can be trusted without a human or a judge looking at it.
 # ``evidence``: an observable fact (canary echoed, tool called, callback received, secret shown).
@@ -139,6 +140,22 @@ OOB_NOT_FETCHED: Final = (
     "inconclusive: the target never fetched the attacker content, so the injection was not tested"
 )
 
+# --- tool server ----------------------------------------------------------------------------
+
+DEFAULT_TOOL_SERVER_HOST: Final = "127.0.0.1"
+TEMPLATE_TOOL_TASK: Final = "{TOOL_TASK}"
+SKIP_NO_TOOL_SERVER: Final = (
+    "no tool server (pass tool_server= to the SDK, or set `tool_server:` in redgrade.yaml, and point "
+    "the agent's tool backends or MCP client at it)"
+)
+SKIP_NO_TOOL_TASK: Final = (
+    "no tool with a `task` in tool_server.tools: a tool-output attack needs a user request that makes "
+    "the agent call the poisoned tool"
+)
+TOOL_NOT_CALLED: Final = (
+    "inconclusive: the agent never called a tool that carried the injection, so it was not tested"
+)
+
 # --- multi-turn detection -------------------------------------------------------------------
 
 DetectOn = Literal["last", "any"]
@@ -212,6 +229,7 @@ PIPELINE_CI_ATTACHMENTS: Final = "ci.attachments"
 PIPELINE_CI_OOB: Final = "ci.oob"
 PIPELINE_CI_OUTPUT: Final = "ci.output"
 PIPELINE_CI_AGENT: Final = "ci.agent"
+PIPELINE_CI_TOOLS: Final = "ci.tools"
 PIPELINE_LAB_ADAPTIVE: Final = "lab.adaptive_pi"
 DEFAULT_CHECK_PIPELINES: Final[tuple[str, ...]] = (
     PIPELINE_CI_PI,
@@ -229,6 +247,10 @@ STRATEGY_GOAT: Final = "goat"
 STRATEGY_ECHO_CHAMBER: Final = "echo_chamber"
 STRATEGY_BEST_OF_N: Final = "best_of_n"
 STRATEGY_MISCHIEVOUS_USER: Final = "mischievous_user"
+STRATEGY_META: Final = "meta"
+STRATEGY_HYDRA: Final = "hydra"
+STRATEGY_BAD_LIKERT_JUDGE: Final = "bad_likert_judge"
+STRATEGY_INDIRECT: Final = "indirect"
 DEEP_STRATEGIES: Final[tuple[str, ...]] = (
     STRATEGY_PAIR,
     STRATEGY_CRESCENDO,
@@ -237,6 +259,10 @@ DEEP_STRATEGIES: Final[tuple[str, ...]] = (
     STRATEGY_ECHO_CHAMBER,
     STRATEGY_BEST_OF_N,
     STRATEGY_MISCHIEVOUS_USER,
+    STRATEGY_META,
+    STRATEGY_HYDRA,
+    STRATEGY_BAD_LIKERT_JUDGE,
+    STRATEGY_INDIRECT,
 )
 
 # --- report ---------------------------------------------------------------------------------

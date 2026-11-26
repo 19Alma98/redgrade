@@ -98,6 +98,7 @@ class ReportDictRequired(TypedDict):
 
 
 class ReportDict(ReportDictRequired, total=False):
+    utility_under_attack: float | None
     security_level: dict[str, JsonValue]
     evasion: dict[str, dict[str, float | int | None]]
     deep_meta: dict[str, JsonValue]
@@ -108,6 +109,7 @@ class ReportDict(ReportDictRequired, total=False):
     readiness: dict[str, JsonValue]
     findings: list[dict[str, JsonValue]]
     notes: list[str]
+    attacker: dict[str, JsonValue]
 
 
 class OpenGradeRow(Protocol):

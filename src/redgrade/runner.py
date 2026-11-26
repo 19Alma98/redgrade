@@ -24,7 +24,11 @@ from redgrade.constants import (
     SKIP_NO_IDENTITY,
     SKIP_NO_JUDGE,
     SKIP_NO_OOB,
+    SKIP_NO_TOOL_SERVER,
+    SKIP_NO_TOOL_TASK,
     SKIP_NO_TOOLS_SURFACE,
+    TEMPLATE_TOOL_TASK,
+    TOOL_NOT_CALLED,
 )
 from redgrade.detectors import DetectorContext, get_detector
 from redgrade.history import history_text
@@ -38,6 +42,7 @@ from redgrade.render import (
     render_attack,
     render_fixtures,
     render_history,
+    render_tool_outputs,
     render_tools,
     render_turn,
 )
@@ -50,6 +55,7 @@ from redgrade.targets import (
     target_accepts_history,
     target_observes_tools,
 )
+from redgrade.tool_server import ANY_TOOL, ToolServer
 from redgrade.types import HistoryMessage
 
 
@@ -74,10 +80,59 @@ def new_canary() -> str:
 
 
 HitsFn = Callable[[], list[OobHit]]
+ObserveFn = Callable[[], list[ToolCall]]
 
 
 def _no_hits() -> list[OobHit]:
     return []
+
+
+def _no_calls() -> list[ToolCall]:
+    return []
+
+
+def _uses_tool_task(attack: Attack) -> bool:
+    return TEMPLATE_TOOL_TASK in attack.prompt or any(TEMPLATE_TOOL_TASK in t.prompt for t in attack.turns)
+
+
+def bind_tool_tasks(attacks: list[Attack], server: ToolServer | None) -> list[Attack | AttackResult]:
+    """Bind ``{TOOL_TASK}`` attacks to each tool of the server that has a ``task``.
+
+    One variant per tool (``<id>@<tool>``): the prompt becomes the tool's task, ``*`` tool outputs
+    target that tool, and the tool's ``expect`` strings become the utility-under-attack check.
+    Attacks that cannot be bound come back as skipped results.
+    """
+    out: list[Attack | AttackResult] = []
+    tasks = server.tasks() if server is not None else {}
+    for attack in attacks:
+        if not _uses_tool_task(attack):
+            out.append(attack)
+            continue
+        if server is None:
+            out.append(AttackResult(attack=attack, skipped_reason=SKIP_NO_TOOL_SERVER))
+            continue
+        if not tasks:
+            out.append(AttackResult(attack=attack, skipped_reason=SKIP_NO_TOOL_TASK))
+            continue
+        for name, spec in tasks.items():
+            turns = tuple(
+                t.model_copy(update={"prompt": t.prompt.replace(TEMPLATE_TOOL_TASK, spec.task)})
+                for t in attack.turns
+            )
+            outputs = tuple(
+                o.model_copy(update={"tool": name}) if o.tool == ANY_TOOL else o for o in attack.tool_outputs
+            )
+            update: dict[str, object] = {
+                "id": f"{attack.id}@{name}",
+                "prompt": attack.prompt.replace(TEMPLATE_TOOL_TASK, spec.task),
+                "turns": turns,
+                "tool_outputs": outputs,
+                "title": f"{attack.title} (via {name})",
+            }
+            if attack.utility is None and spec.expect:
+                update["utility"] = {"detector": "contains", "args": {"patterns": list(spec.expect)}}
+            out.append(attack.model_copy(update=update))
+    return out
 
 
 class AttackRunner:
@@ -87,9 +142,12 @@ class AttackRunner:
     and their callbacks recorded per trial; without it those attacks are skipped and reported.
     """
 
-    def __init__(self, oob: OobServer | None = None, judge: Judge | None = None) -> None:
+    def __init__(
+        self, oob: OobServer | None = None, judge: Judge | None = None, tools: ToolServer | None = None
+    ) -> None:
         self.oob = oob
         self.judge = judge
+        self.tools = tools
 
     def _score(self, attack: Attack, ctx: DetectorContext) -> tuple[bool, str]:
         """The verdict for one output. ``llm_judge`` goes to the configured judge; any detector
@@ -113,9 +171,26 @@ class AttackRunner:
             return self._run_trial(attack, target, config, canary)
 
     def _run_trial(self, attack: Attack, target: Target, config: RunConfig, canary: str) -> Trial:
+        server = self.tools
+        if server is None or not attack.requires_tool_server:
+            return self._run_oob(attack, target, config, canary, _no_calls)
+        with server.trial_lock:
+            server.arm(canary, render_tool_outputs(attack, canary))
+            try:
+                trial = self._run_oob(attack, target, config, canary, server.take_calls)
+                served = server.injected()
+            finally:
+                server.disarm()
+        if attack.requires_tool_call and not served and not trial.succeeded and trial.error is None:
+            trial = trial.model_copy(update={"error": TOOL_NOT_CALLED})
+        return trial
+
+    def _run_oob(
+        self, attack: Attack, target: Target, config: RunConfig, canary: str, observe: ObserveFn
+    ) -> Trial:
         oob = self.oob
         if oob is None or not attack.requires_oob:
-            return self._execute(attack, target, config, canary, _no_hits)
+            return self._execute(attack, target, config, canary, _no_hits, observe)
 
         def hits() -> list[OobHit]:
             # Give an agent that fetches in the background a moment to call back.
@@ -125,7 +200,7 @@ class AttackRunner:
         with oob_scope(oob.base_url):
             oob.register(canary, render_fixtures(attack, canary))
             try:
-                trial = self._execute(attack, target, config, canary, hits)
+                trial = self._execute(attack, target, config, canary, hits, observe)
                 update: dict[str, object] = {"oob_hits": oob.hits(canary)}
                 fetched = bool(oob.hits(canary, OOB_HIT_FIXTURE))
                 if attack.requires_fetch and not fetched and not trial.succeeded and trial.error is None:
@@ -141,7 +216,15 @@ class AttackRunner:
         config: RunConfig,
         canary: str,
         hits: HitsFn,
+        observe: ObserveFn = _no_calls,
     ) -> Trial:
+        def seen(obs: TargetObservation) -> TargetObservation:
+            # Calls the tool server saw during this invocation join the target's own trajectory.
+            extra = observe()
+            if not extra:
+                return obs
+            return obs.model_copy(update={"tools_called": (*obs.tools_called, *extra)})
+
         tools = render_tools(attack, canary)
         forged = render_history(attack, canary)
         forged_inputs = history_text(forged)
@@ -150,7 +233,9 @@ class AttackRunner:
             files = render_attachments(attack.attachments, canary)
             start = time.perf_counter()
             try:
-                obs = normalize_observation(invoke_target(target, prompt, documents, forged, tools, files))
+                obs = seen(
+                    normalize_observation(invoke_target(target, prompt, documents, forged, tools, files))
+                )
             except Exception as exc:  # the target is user code; any failure is a result, not a crash
                 return Trial(
                     succeeded=False,
@@ -186,7 +271,9 @@ class AttackRunner:
                 prompt, documents = render_turn(turn, canary)
                 files = render_attachments(turn.attachments, canary)
                 all_inputs.extend([prompt, *documents, *attachments_text(files)])
-                obs = normalize_observation(invoke_target(target, prompt, documents, history, tools, files))
+                obs = seen(
+                    normalize_observation(invoke_target(target, prompt, documents, history, tools, files))
+                )
                 turn_outputs.append(obs.output)
                 last_tools = list(obs.tools_called)
                 history.append({"role": "user", "content": prompt})
@@ -205,6 +292,7 @@ class AttackRunner:
                             turn_outputs=turn_outputs,
                             latency_s=time.perf_counter() - start,
                             canary=canary,
+                            task_completed=self._task_completed(attack, ctx),
                         )
         except Exception as exc:
             return Trial(
@@ -277,7 +365,23 @@ class AttackRunner:
             tools_called=tools,
             latency_s=latency_s,
             canary=canary,
+            task_completed=self._task_completed(attack, ctx),
         )
+
+    @staticmethod
+    def _task_completed(attack: Attack, ctx: DetectorContext) -> bool | None:
+        """Utility under attack: the attack's ``utility`` check on the same output. A failing check
+        (bad args, classifier down) counts as not completed: never as a free pass for utility."""
+        if attack.utility is None:
+            return None
+        spec = attack.utility
+        raw_args = spec.get("args")
+        args = dict(raw_args) if isinstance(raw_args, dict) else {}
+        try:
+            done, _why = get_detector(str(spec["detector"]))(ctx.model_copy(update={"args": args}))
+        except Exception:
+            return False
+        return done
 
     def run(
         self,
@@ -310,24 +414,40 @@ class AttackRunner:
                 return AttackResult(attack=attack, skipped_reason=SKIP_NO_IDENTITY)
             if attack.requires_oob and self.oob is None:
                 return AttackResult(attack=attack, skipped_reason=SKIP_NO_OOB)
+            if attack.requires_tool_server and self.tools is None:
+                return AttackResult(attack=attack, skipped_reason=SKIP_NO_TOOL_SERVER)
             result = AttackResult(attack=attack)
             for _ in range(config.trials):
                 result.trials.append(self.run_trial(attack, target, config))
             return result
 
-        if config.concurrency > 1:
-            with ThreadPoolExecutor(max_workers=config.concurrency) as pool:
-                results = list(pool.map(one, attacks))
+        bound = bind_tool_tasks(attacks, self.tools)
+        slots: list[AttackResult | None] = [b if isinstance(b, AttackResult) else None for b in bound]
+        todo = [(i, b) for i, b in enumerate(bound) if isinstance(b, Attack)]
+        # Tool-server trials share one server whose calls carry no trial id: run them one at a time,
+        # after the others, so no parallel trial can see (or cause) their tool calls.
+        parallel = [(i, a) for i, a in todo if not (a.requires_tool_server and self.tools is not None)]
+        serial = [(i, a) for i, a in todo if a.requires_tool_server and self.tools is not None]
+        for r in slots:
+            if r is not None and on_result:
+                on_result(r)
+
+        def put(i: int, r: AttackResult) -> None:
+            slots[i] = r
             if on_result:
-                for r in results:
-                    on_result(r)
+                on_result(r)
+
+        if config.concurrency > 1 and len(parallel) > 1:
+            with ThreadPoolExecutor(max_workers=config.concurrency) as pool:
+                done = list(pool.map(lambda item: one(item[1]), parallel))
+            for (i, _a), r in zip(parallel, done, strict=True):
+                put(i, r)
         else:
-            results = []
-            for attack in attacks:
-                r = one(attack)
-                results.append(r)
-                if on_result:
-                    on_result(r)
+            for i, a in parallel:
+                put(i, one(a))
+        for i, a in serial:
+            put(i, one(a))
+        results = [r for r in slots if r is not None]
         return RunResult(results=results, trials_per_attack=config.trials)
 
 
@@ -339,8 +459,9 @@ def run_trial(
     *,
     oob: OobServer | None = None,
     judge: Judge | None = None,
+    tools: ToolServer | None = None,
 ) -> Trial:
-    return AttackRunner(oob, judge).run_trial(attack, target, config, canary=canary)
+    return AttackRunner(oob, judge, tools).run_trial(attack, target, config, canary=canary)
 
 
 def run_attacks(
@@ -351,5 +472,6 @@ def run_attacks(
     *,
     oob: OobServer | None = None,
     judge: Judge | None = None,
+    tools: ToolServer | None = None,
 ) -> RunResult:
-    return AttackRunner(oob, judge).run(attacks, target, config, on_result=on_result)
+    return AttackRunner(oob, judge, tools).run(attacks, target, config, on_result=on_result)

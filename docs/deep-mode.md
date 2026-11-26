@@ -58,6 +58,14 @@ file with `--pack` / `packs=` and the win is replayed on every pull request, wit
 | `echo_chamber` | multi-turn | plants harmless seeds, then makes the target elaborate on its own earlier words until it states the goal | Echo Chamber (NeuralTrust, 2025) |
 | `mischievous_user` | multi-turn | a realistic, slightly mischievous customer: casual tone, typos, promised exceptions, emotional pressure, no red-team vocabulary; finds the policy gaps ordinary users hit | promptfoo `mischievous-user` |
 | `best_of_n` | sampling, no attacker model | seeded random augmentations (word scrambling, caps, ASCII noise) of the seed or goal until one works; reproducible | Best-of-N (Hughes et al., 2024) |
+| `meta` | single-turn, memory | works through a taxonomy of techniques (role play, authority, format coercion, task decomposition...), records how the target reacted to each and must pick an untried one or refine the closest | promptfoo `jailbreak:meta` |
+| `indirect` | single-turn, data only | the user's request stays fixed; only the injected documents are rewritten (an indirect injection stays indirect) | AutoDojo (2026), "The Attacker Moves Second" (2025) |
+| `hydra` | multi-turn, branching | a refusal closes the branch; the next branch starts a fresh conversation with a new approach and the lessons learned so far | promptfoo `jailbreak:hydra` |
+| `bad_likert_judge` | multi-turn | the target scores answers on a Likert scale for the goal, writes an example per score, then expands the top-scored one | Bad Likert Judge (Unit 42, 2025) |
+
+A scan also measures the attacker: it is calibrated on an offline reference target (rewrite a
+blocked request past a keyword filter) and its answers are counted (usable, invalid, refused).
+See `report.attacker` and the README section "How strong was the attacker?".
 
 The multi-turn strategies **backtrack** like Crescendo: when the target refuses, that turn is removed
 from the history sent on the next call (it still counts as a trial) and the attacker is told to try

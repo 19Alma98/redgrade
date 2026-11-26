@@ -20,7 +20,13 @@ from redgrade.levels import LevelScorer
 from redgrade.models import RunResult
 from redgrade.scorecard import build_scorecard
 from redgrade.scoring import PiScorer
-from redgrade.utility import attack_results, gated_results, utility_rate, utility_results
+from redgrade.utility import (
+    attack_results,
+    gated_results,
+    utility_rate,
+    utility_results,
+    utility_under_attack,
+)
 
 
 def _default_severity_limits() -> dict[str, float]:
@@ -39,6 +45,8 @@ class Policy(BaseModel):
     ``min_utility``             minimum task-utility rate when utility probes ran (higher is
                                 better). Default ``1.0``.
     ``require_utility``         if True, fail when no ``task_utility`` probes executed
+    ``min_utility_under_attack`` minimum fraction of attack trials (with a ``utility`` check)
+                                where the user's task still got done; ``None``: not gated
     ``baseline``                per-attack regression gate against a recorded baseline
     (see ``redgrade.baseline.BaselinePolicy``)
     ``min_security_score``      minimum overall scorecard score (0-100); see ``redgrade.scorecard``
@@ -64,6 +72,7 @@ class Policy(BaseModel):
     max_asr_by_level: dict[int, float] = Field(default_factory=dict)
     min_utility: float = DEFAULT_MIN_UTILITY
     require_utility: bool = False
+    min_utility_under_attack: float | None = None
     baseline: BaselinePolicy | None = None
     min_security_score: int | None = None
     min_family_score: dict[str, int] = Field(default_factory=dict)
@@ -128,6 +137,13 @@ class Policy(BaseModel):
     def _validate_min_utility(cls, value: float) -> float:
         if not (0.0 <= value <= 1.0):
             raise ValueError("min_utility must be between 0 and 1")
+        return value
+
+    @field_validator("min_utility_under_attack")
+    @classmethod
+    def _validate_min_uua(cls, value: float | None) -> float | None:
+        if value is not None and not (0.0 <= value <= 1.0):
+            raise ValueError("min_utility_under_attack must be between 0 and 1")
         return value
 
     @field_validator("max_asr_by_level", mode="before")
@@ -262,6 +278,18 @@ class PolicyEvaluator:
                     value=rate_u,
                     limit=policy.min_utility,
                     passed=rate_u >= policy.min_utility,
+                )
+            )
+
+        if policy.min_utility_under_attack is not None:
+            uua = utility_under_attack(run)
+            checks.append(
+                Check(
+                    name="utility.under_attack",
+                    value=uua if uua is not None else 0.0,
+                    limit=policy.min_utility_under_attack,
+                    # No attack with a utility check ran: the gate cannot be met, never assumed.
+                    passed=uua is not None and uua >= policy.min_utility_under_attack,
                 )
             )
 
